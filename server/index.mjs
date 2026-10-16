@@ -1,0 +1,175 @@
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { randomBytes } from 'node:crypto';
+import { WebSocketServer, WebSocket } from 'ws';
+import { Workspace, providers, findCommand } from './workspace.mjs';
+import { Terminals } from './terminals.mjs';
+import { TaskManager } from './task-manager.mjs';
+import { Orchestration, coordinatorProviders } from './orchestration.mjs';
+import { automatedProviders } from './cli-adapters.mjs';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const port = Number(process.env.PORT || 4317);
+const dev = process.argv.includes('--dev');
+const token = randomBytes(32).toString('hex');
+const cookieName = `orquestra_${port}`;
+const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
+const origins = new Set([...hosts].map(h => `http://${h}`));
+const workspace = new Workspace(process.env.ORQUESTRA_DATA_DIR || path.join(root, '.local'), root);
+const sockets = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+const send = (ws, data) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data)); };
+const broadcast = data => {
+  for (const ws of sockets.clients) {
+    if (ws.bufferedAmount > 2 * 1024 * 1024) ws.close(1013, 'Reconecte para recuperar o terminal');
+    else send(ws, data);
+  }
+};
+const terminals = new Terminals(event => broadcast(event.type === 'changed' ? snapshot() : event));
+const tasks = new TaskManager(workspace, () => broadcast(snapshot()));
+const orchestration = new Orchestration(workspace, terminals, tasks, port);
+function snapshot() {
+  return { type: 'state', projects: workspace.state.projects, agents: workspace.state.agents.map(a => ({ ...a, ...terminals.info(a.id) })), tasks: tasks.summaries() };
+}
+function authenticated(req) {
+  return (req.headers.cookie || '').split(';').some(c => c.trim() === `${cookieName}=${token}`);
+}
+function trusted(req) {
+  return hosts.has(req.headers.host) && (!req.headers.origin || origins.has(req.headers.origin)) && req.headers['sec-fetch-site'] !== 'cross-site';
+}
+function json(res, code, data) {
+  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify(data));
+}
+async function body(req) {
+  let content = '';
+  for await (const chunk of req) {
+    content += chunk;
+    if (content.length > 65536) throw new Error('Pedido muito grande.');
+  }
+  const data = JSON.parse(content || '{}');
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Pedido inválido.');
+  return data;
+}
+let vite;
+const server = http.createServer(async (req, res) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Frame-Options', 'DENY');
+  if (!trusted(req)) return json(res, 403, { error: 'Origem não permitida.' });
+  const pathname = new URL(req.url, `http://127.0.0.1:${port}`).pathname;
+  if (pathname === '/internal/orchestration') {
+    const scope = orchestration.scope((req.headers.authorization || '').replace(/^Bearer /, ''));
+    if (!scope) return json(res, 401, { error: 'Coordenador não autenticado.' });
+    if (req.method !== 'POST') return json(res, 405, { error: 'Método não permitido.' });
+    try { const input = await body(req); return json(res, 200, await orchestration.call(scope, input.name, input.args)); }
+    catch (error) { return json(res, 400, { error: error.message }); }
+  }
+  if (pathname.startsWith('/api/')) {
+    if (!authenticated(req)) return json(res, 401, { error: 'Reabra o aplicativo para conectar.' });
+    try {
+      if (req.method === 'GET' && pathname === '/api/state') return json(res, 200, snapshot());
+      if (req.method === 'GET' && pathname === '/api/providers') {
+        return json(res, 200, providers.map(p => ({ ...p, coordinator: coordinatorProviders.includes(p.id), automated: automatedProviders.includes(p.id), available: ['shell', 'custom'].includes(p.id) || !!findCommand(p.command) })));
+      }
+      if (req.method === 'POST' && pathname === '/api/projects') {
+        const project = workspace.addProject(await body(req));
+        broadcast(snapshot()); return json(res, 201, project);
+      }
+      if (req.method === 'POST' && pathname === '/api/agents') {
+        const agent = workspace.addAgent(await body(req));
+        broadcast(snapshot()); return json(res, 201, agent);
+      }
+      const coordinatorMatch = pathname.match(/^\/api\/projects\/([a-f0-9-]+)\/coordinator$/);
+      if (req.method === 'POST' && coordinatorMatch) return json(res, 200, orchestration.start(coordinatorMatch[1], (await body(req)).agentId));
+      if (pathname === '/api/tasks' && req.method === 'POST') {
+        const input = await body(req); return json(res, 201, tasks.create(input.projectId, input));
+      }
+      const taskMatch = pathname.match(/^\/api\/tasks\/([a-f0-9-]+)(?:\/(cancel))?$/);
+      if (taskMatch && req.method === 'GET' && !taskMatch[2]) return json(res, 200, tasks.get(taskMatch[1]));
+      if (taskMatch && req.method === 'POST' && taskMatch[2] === 'cancel') return json(res, 200, tasks.cancel(taskMatch[1]));
+      const match = pathname.match(/^\/api\/agents\/([a-f0-9-]+)(?:\/(start|stop|input|prompt))?$/);
+      if (match) {
+        const agent = workspace.state.agents.find(a => a.id === match[1]);
+        if (!agent) return json(res, 404, { error: 'Agente não encontrado.' });
+        if (req.method === 'DELETE' && !match[2]) {
+          if (tasks.summaries().some(t => t.agentId === agent.id && ['queued', 'running', 'cancelling'].includes(t.status))) return json(res, 409, { error: 'Cancele as tarefas ativas antes de remover o executor.' });
+          for (const [token, scope] of orchestration.tokens) if (scope.agentId === agent.id) orchestration.tokens.delete(token);
+          terminals.stop(agent.id); workspace.removeAgent(agent.id); terminals.sessions.delete(agent.id);
+          broadcast(snapshot()); return json(res, 200, { ok: true });
+        }
+        if (req.method === 'POST') {
+          if (match[2] === 'start') { if (agent.coordinator) orchestration.start(agent.projectId); else terminals.start(agent); }
+          else if (match[2] === 'stop') terminals.stop(agent.id);
+          else if (match[2] === 'input') terminals.write(agent.id, (await body(req)).data);
+          else if (match[2] === 'prompt') {
+            const input = await body(req);
+            await terminals.prompt(agent.id, input.text, { submit: input.submit !== false, bracketed: input.bracketed === true });
+          }
+          else return json(res, 404, { error: 'Ação não encontrada.' });
+          return json(res, 200, { ok: true });
+        }
+      }
+      return json(res, 404, { error: 'Rota não encontrada.' });
+    } catch (error) { return json(res, 400, { error: error.message }); }
+  }
+  if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: 'Método não permitido.' });
+  // Only a top-level page navigation can bootstrap the local session cookie.
+  if (pathname === '/') res.setHeader('Set-Cookie', `${cookieName}=${token}; HttpOnly; SameSite=Strict; Path=/`);
+  if (vite) return vite.middlewares(req, res);
+  const dist = path.join(root, 'dist');
+  let file;
+  try { file = path.resolve(dist, '.' + decodeURIComponent(pathname === '/' ? '/index.html' : pathname)); }
+  catch { return json(res, 400, { error: 'Caminho inválido.' }); }
+  if (!file.startsWith(dist + path.sep) || !fs.statSync(file, { throwIfNoEntry: false })?.isFile()) {
+    return json(res, 404, { error: 'Arquivo não encontrado. Execute npm.cmd run build antes de iniciar.' });
+  }
+  const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2' };
+  res.writeHead(200, { 'Content-Type': (mime[path.extname(file)] || 'application/octet-stream'), 'Cache-Control': 'no-cache' });
+  if (req.method === 'HEAD') return res.end();
+  fs.createReadStream(file).pipe(res);
+});
+if (dev) {
+  const { createServer } = await import('vite');
+  vite = await createServer({ root, server: { middlewareMode: true, hmr: { server }, allowedHosts: ['localhost', '127.0.0.1'] } });
+}
+server.on('upgrade', (req, socket, head) => {
+  if (req.url !== '/ws') { if (!dev) socket.destroy(); return; }
+  if (!trusted(req) || !authenticated(req) || !origins.has(req.headers.origin)) { socket.destroy(); return; }
+  sockets.handleUpgrade(req, socket, head, ws => {
+    sockets.emit('connection', ws, req);
+  });
+});
+sockets.on('connection', ws => {
+  ws.on('error', () => {});
+  // Snapshot and replay share the same event loop; live output follows without a gap.
+  send(ws, snapshot());
+  for (const [id, session] of terminals.sessions) send(ws, { type: 'replay', id, data: session.history });
+  ws.on('message', raw => {
+    try {
+      const message = JSON.parse(raw.toString());
+      if (message.type === 'input') terminals.write(message.id, message.data);
+      else if (message.type === 'resize') terminals.resize(message.id, message.cols, message.rows);
+    } catch (error) { send(ws, { type: 'error', message: error.message }); }
+  });
+});
+server.on('error', error => {
+  console.error(error.code === 'EADDRINUSE' ? `A porta ${port} está ocupada. Feche a outra instância ou configure PORT.` : error.message);
+  process.exit(1);
+});
+server.listen(port, '127.0.0.1', () => console.log(`Orquestra disponível em http://127.0.0.1:${port}`));
+let closing = false;
+async function shutdown() {
+  if (closing) return;
+  closing = true;
+  tasks.dispose();
+  terminals.dispose();
+  for (const ws of sockets.clients) ws.terminate();
+  sockets.close();
+  if (vite) await vite.close();
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 1500).unref();
+}
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
