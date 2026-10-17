@@ -63,7 +63,8 @@ dialog{background:#1a1c20;color:#d8dce2;width:530px;max-width:calc(100vw - 30px)
 :root[data-theme] .terminal-body,:root[data-theme] .task-output { background: var(--theme-bg); }
 :root[data-theme] .project-item.active,:root[data-theme] .task-history-item.selected,:root[data-theme] .target:has(input:checked) { background: var(--theme-selection); border-color: var(--theme-accent); }
 :root[data-theme] .button.primary { background: var(--theme-accent); border-color: var(--theme-accent); color: #171820; }
-:root[data-theme] .view-tabs button.active,:root[data-theme] .brand-symbol i,:root[data-theme] .connection.online>span { color: var(--theme-accent); border-color: var(--theme-accent); background-color: var(--theme-accent); }
+:root[data-theme] .view-tabs button.active { color: var(--theme-accent); border-color: var(--theme-accent); background-color: transparent; }
+:root[data-theme] .brand-symbol i,:root[data-theme] .connection.online>span { color: var(--theme-accent); border-color: var(--theme-accent); background-color: var(--theme-accent); }
 :root[data-theme] .connection.online>span { box-shadow: 0 0 8px var(--theme-accent); }
 .theme-preview { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 14px 0 22px; }
 .theme-preview button { display: flex; align-items: center; gap: 7px; padding: 9px; border: 1px solid #34383e; border-radius: 6px; background: #181a1e; text-align: left; font-size: 11px; }
