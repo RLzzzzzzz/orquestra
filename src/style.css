@@ -49,3 +49,24 @@ dialog{background:#1a1c20;color:#d8dce2;width:530px;max-width:calc(100vw - 30px)
 .memory-handoff { border: 1px solid #363a42; padding: 18px; margin: 12px 0; border-radius: 8px; }
 .task-live-notice { color: #b6ed85; }
 .memory-page-actions { display: flex; align-items: center; gap: 8px; }
+
+/* Color themes share the layout while giving both the chrome and terminal a coherent palette. */
+:root { --theme-bg: #101113; --theme-panel: #151619; --theme-raised: #1b1d21; --theme-input: #111315; --theme-border: #292c31; --theme-text: #d9dcdf; --theme-muted: #8a909a; --theme-accent: #b6ed85; --theme-selection: #293a20; }
+:root[data-theme="dracula"] { --theme-bg: #282a36; --theme-panel: #21222c; --theme-raised: #343746; --theme-input: #1f2029; --theme-border: #44475a; --theme-text: #f8f8f2; --theme-muted: #b7b4c7; --theme-accent: #bd93f9; --theme-selection: #44475a; --accent: #bd93f9; --border: #44475a; --surface: #343746; }
+:root[data-theme="nord"] { --theme-bg: #2e3440; --theme-panel: #272c36; --theme-raised: #3b4252; --theme-input: #242933; --theme-border: #4c566a; --theme-text: #e5e9f0; --theme-muted: #aab7c9; --theme-accent: #88c0d0; --theme-selection: #3b5965; --accent: #88c0d0; --border: #4c566a; --surface: #3b4252; }
+:root[data-theme="monokai"] { --theme-bg: #272822; --theme-panel: #1f201b; --theme-raised: #3e3d32; --theme-input: #1c1d18; --theme-border: #585746; --theme-text: #f8f8f2; --theme-muted: #bbbda9; --theme-accent: #a6e22e; --theme-selection: #49483e; --accent: #a6e22e; --border: #585746; --surface: #3e3d32; }
+:root[data-theme="tokyo"] { --theme-bg: #1a1b26; --theme-panel: #16161e; --theme-raised: #24283b; --theme-input: #13141c; --theme-border: #3b4261; --theme-text: #c0caf5; --theme-muted: #9aa5ce; --theme-accent: #7aa2f7; --theme-selection: #33467c; --accent: #7aa2f7; --border: #3b4261; --surface: #24283b; }
+:root[data-theme] body,:root[data-theme] .app,:root[data-theme] .main { background: var(--theme-bg); color: var(--theme-text); }
+:root[data-theme] .app-bar,:root[data-theme] .sidebar,:root[data-theme] .task-panel,:root[data-theme] .status-bar { background: var(--theme-panel); }
+:root[data-theme] .workspace-name,:root[data-theme] .terminal-pane,:root[data-theme] .task-detail,:root[data-theme] .task-history-item,:root[data-theme] .target,:root[data-theme] .layout-switch,:root[data-theme] .provider-options button,:root[data-theme] dialog { background: var(--theme-raised); border-color: var(--theme-border); }
+:root[data-theme] .pane-heading,:root[data-theme] .terminal-placeholder,:root[data-theme] .memory-controls input,:root[data-theme] .memory-editor textarea,:root[data-theme] .task-panel textarea,:root[data-theme] input,:root[data-theme] textarea,:root[data-theme] select { background: var(--theme-input); border-color: var(--theme-border); color: var(--theme-text); }
+:root[data-theme] .terminal-body,:root[data-theme] .task-output { background: var(--theme-bg); }
+:root[data-theme] .project-item.active,:root[data-theme] .task-history-item.selected,:root[data-theme] .target:has(input:checked) { background: var(--theme-selection); border-color: var(--theme-accent); }
+:root[data-theme] .button.primary { background: var(--theme-accent); border-color: var(--theme-accent); color: #171820; }
+:root[data-theme] .view-tabs button.active,:root[data-theme] .brand-symbol i,:root[data-theme] .connection.online>span { color: var(--theme-accent); border-color: var(--theme-accent); background-color: var(--theme-accent); }
+:root[data-theme] .connection.online>span { box-shadow: 0 0 8px var(--theme-accent); }
+.theme-preview { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 14px 0 22px; }
+.theme-preview button { display: flex; align-items: center; gap: 7px; padding: 9px; border: 1px solid #34383e; border-radius: 6px; background: #181a1e; text-align: left; font-size: 11px; }
+.theme-preview button.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, #181a1e); }
+.theme-preview button > span { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 3px #ffffff12; }
+.theme-preview svg { color: #8c949e; }
