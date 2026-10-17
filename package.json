@@ -16,7 +16,12 @@
     "desktop:pack": "npm run build && npm run desktop:prepare && electron-builder --win --x64 --dir",
     "desktop:portable": "npm run build && npm run desktop:prepare && electron-builder --win portable --x64",
     "desktop:installer": "npm run build && npm run desktop:prepare && electron-builder --win nsis --x64",
-    "test": "node --test tests/*.test.mjs"
+    "check": "node scripts/check.mjs",
+    "test": "node scripts/test.mjs all",
+    "test:unit": "node scripts/test.mjs unit",
+    "test:integration": "node scripts/test.mjs integration",
+    "test:regression": "node scripts/test.mjs regression",
+    "test:coverage": "node scripts/test.mjs all --coverage"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",

@@ -10,8 +10,16 @@ if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || url.pathname !==
 const server = new McpServer({ name: 'orquestra', version: '0.2.0' }, { instructions: 'Você coordena os executores externos deste projeto. Liste agentes, delegue tarefas com request_id único e consulte até terminar. Não confunda executando com concluído. Não use subagentes internos no lugar dos executores cadastrados. Respeite permissões e relate erros.' });
 const taskId = z.string().uuid();
 const definitions = [
+  ['confirmar_recebimento', 'O executor confirma que recebeu a tarefa nesta sessão antes de começar a trabalhar.', { task_id: taskId }],
+  ['preparar_worktree', 'Cria worktree isolada para um agente com terminal encerrado. Abra o terminal depois pela interface.', { agent_id: taskId }],
+  ['listar_worktrees', 'Lista branches, arquivos, commits e potenciais conflitos entre agentes.', {}],
+  ['consultar_worktree', 'Consulta o diff real e a revisão da worktree do agente.', { agent_id: taskId.optional() }],
+  ['commit_worktree', 'Cria commit somente se o usuário habilitou commits automáticos para este agente. Não faz push ou merge.', { agent_id: taskId.optional(), message: z.string().min(1).max(500), revision: z.string().length(64) }],
+  ['iniciar_revisao', 'Inicia implementação, revisão independente e testes. Usa somente executores abertos disponíveis. A validação final exige ação na interface.', { prompt: z.string().min(1).max(10000), implementer: taskId.optional(), reviewer: taskId.optional(), tester: taskId.optional(), maxCycles: z.number().int().min(1).max(3).optional() }],
+  ['consultar_revisao', 'Consulta agentes, tarefas, arquivos, commits, achados, testes e pendências da revisão.', { review_id: taskId }],
+  ['retomar_revisao', 'Encaminha achados ao implementador em um novo ciclo, dentro do limite configurado.', { review_id: taskId }],
   ['buscar_memoria', 'Busca memória persistente deste projeto no AI Memory.', { query: z.string().min(1).max(2000) }],
-  ['salvar_memoria', 'Salva decisão, aprendizado ou instrução durável no AI Memory. Não grave segredos.', { path: z.string().max(200), body: z.string().min(1).max(32000), tier: z.enum(['working', 'episodic', 'semantic', 'procedural']).optional(), pinned: z.boolean().optional() }],
+  ['salvar_memoria', 'Salva decisão ou aprendizado. Para editar, leia a página e envie seu page_id como expected_page_id; para criar sem sobrescrever, use create_only. Não grave segredos.', { path: z.string().max(200), body: z.string().min(1).max(32000), tier: z.enum(['working', 'episodic', 'semantic', 'procedural']).optional(), pinned: z.boolean().optional(), expected_page_id: z.string().min(1).max(300).optional(), create_only: z.boolean().optional() }],
   ['ler_memoria', 'Lê uma página de memória deste projeto.', { path: z.string().max(200) }],
   ['resumo_memoria', 'Consulta contexto recente e decisões compartilhadas do projeto, sem chamada adicional a um modelo.', {}],
   ['listar_handoffs', 'Lista passagens de contexto pendentes deste projeto.', {}],
@@ -26,11 +34,17 @@ const definitions = [
   ['listar_tarefas', 'Lista o histórico de tarefas deste projeto.', {}],
   ['cancelar_tarefa', 'Cancela uma tarefa em fila ou encerra o processo de uma tarefa em execução deste projeto.', { task_id: taskId }],
 ];
-for (const [name, description, inputSchema] of definitions) server.registerTool(name, { description, inputSchema, annotations: { readOnlyHint: ['listar_agentes', 'consultar_tarefa', 'listar_tarefas'].includes(name), destructiveHint: ['enviar_tarefa', 'cancelar_tarefa', 'criar_tarefa', 'atualizar_tarefa'].includes(name), openWorldHint: name === 'enviar_tarefa' } }, async args => {
+for (const [name, description, inputSchema] of definitions) server.registerTool(name, { description, inputSchema, annotations: { readOnlyHint: ['listar_agentes', 'consultar_tarefa', 'listar_tarefas', 'listar_worktrees', 'consultar_worktree', 'consultar_revisao'].includes(name), destructiveHint: ['enviar_tarefa', 'cancelar_tarefa', 'criar_tarefa', 'atualizar_tarefa', 'preparar_worktree', 'commit_worktree', 'iniciar_revisao', 'retomar_revisao'].includes(name), openWorldHint: ['enviar_tarefa', 'iniciar_revisao', 'retomar_revisao'].includes(name) } }, async args => {
   try {
     const response = await fetch(endpoint, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ name, args }), signal: AbortSignal.timeout(30000) });
     const data = await response.json();
     return { content: [{ type: 'text', text: JSON.stringify(data) }], ...(response.ok ? {} : { isError: true }) };
   } catch (error) { return { isError: true, content: [{ type: 'text', text: `Não foi possível acessar o Orquestra: ${error.message}` }] }; }
 });
+// This notification comes from MCP initialization, not from a model declaration.
+server.server.oninitialized = async () => {
+  try {
+    await fetch(endpoint, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'registrar_sessao' }), signal: AbortSignal.timeout(5000) });
+  } catch (error) { console.error(`Registro da sessão MCP: ${error.message}`); }
+};
 await server.connect(new StdioServerTransport());

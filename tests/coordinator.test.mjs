@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Workspace } from '../server/workspace.mjs';
-import { Orchestration } from '../server/orchestration.mjs';
+import { Orchestration, coordinatorCommand } from '../server/orchestration.mjs';
 
 test('selects and persists coordinator, isolates Freebuff config, blocks invalid switches', t => {
   const dir = fs.mkdtempSync(path.join(process.cwd(), '.local-coordinator-'));
@@ -26,6 +26,17 @@ test('selects and persists coordinator, isolates Freebuff config, blocks invalid
   assert.equal(coordinator.sourceAgentId, second.id); assert.equal(first.coordinator, undefined);
   assert.equal(orchestration.scope(oldToken), undefined);
   assert.ok(JSON.parse(launch.env.OPENCODE_CONFIG_CONTENT).mcp.orquestra);
+  const previousConfig = process.env.OPENCODE_CONFIG_CONTENT;
+  process.env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ plugin: ['file:///personal.ts'], mcp: { personal: { enabled: false } } });
+  try {
+    const capture = { plugin: 'file:///orquestra-native.ts', env: { ORQUESTRA_MEMORY_PROJECT: projectId } };
+    const native = coordinatorCommand('opencode', { capture });
+    const config = JSON.parse(native.env.OPENCODE_CONFIG_CONTENT);
+    assert.deepEqual(config.plugin, ['file:///personal.ts', capture.plugin]);
+    assert.ok(config.mcp.personal); assert.ok(config.mcp.orquestra);
+    assert.equal(native.env.ORQUESTRA_MEMORY_PROJECT, projectId);
+    assert.deepEqual(JSON.parse(process.env.OPENCODE_CONFIG_CONTENT).plugin, ['file:///personal.ts']);
+  } finally { if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG_CONTENT; else process.env.OPENCODE_CONFIG_CONTENT = previousConfig; }
   active = [{ status: 'running' }];
   assert.throws(() => orchestration.start(projectId, first.id), /tarefas ativas/);
   active = [];

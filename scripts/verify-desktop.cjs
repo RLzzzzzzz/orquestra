@@ -5,6 +5,19 @@ const { execFileSync } = require('node:child_process');
 
 module.exports = async function verifyDesktop(context) {
   const backend = path.join(context.appOutDir, 'resources', 'backend');
+  const root = path.resolve(__dirname, '..');
+  const asar = await import('@electron/asar');
+  const archive = path.join(context.appOutDir, 'resources', 'app.asar');
+  for (const name of ['main.cjs', 'preload.cjs', 'notifications.cjs']) {
+    if (!asar.extractFile(archive, name).equals(fs.readFileSync(path.join(root, 'electron', name)))) {
+      throw new Error(`Arquivo Electron ausente ou desatualizado: ${name}`);
+    }
+  }
+  for (const name of ['server/cli-launcher.mjs', 'server/cli-process.mjs', 'server/native-capture.mjs', 'server/hermes-capture.py', 'server/memory.mjs', 'dist/index.html']) {
+    if (!fs.readFileSync(path.join(backend, name)).equals(fs.readFileSync(path.join(root, name)))) {
+      throw new Error(`Arquivo do backend ausente ou desatualizado: ${name}`);
+    }
+  }
   const modules = path.join(backend, 'node_modules') + path.sep;
   const requireBackend = createRequire(path.join(backend, 'package.json'));
   const manifest = JSON.parse(fs.readFileSync(path.join(backend, 'package.json'), 'utf8'));
@@ -22,5 +35,5 @@ module.exports = async function verifyDesktop(context) {
   execFileSync(path.join(backend, 'node.exe'), ['--input-type=module', '--eval',
     "await import('./server/terminals.mjs'); await import('./server/memory.mjs'); await import('./server/task-manager.mjs'); await import('./server/orchestration.mjs');",
   ], { cwd: backend, windowsHide: true, timeout: 10000, stdio: 'pipe' });
-  console.log('Backend empacotado: dependências locais e imports verificados.');
+  console.log('Pacote verificado: Electron, preload, notificações, captura nativa, interface e dependências locais.');
 };

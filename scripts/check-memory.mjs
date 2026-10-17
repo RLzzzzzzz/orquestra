@@ -8,15 +8,26 @@ process.env.ORQUESTRA_MEMORY_BIN ||= path.resolve('.local/runtime/ai-memory/ai-m
 let memory = new Memory(directory);
 const project = randomUUID(), other = randomUUID();
 try {
+  assert.ok(await memory.call(project, 'status'));
+  await Promise.all(Array.from({ length: 3 }, (_, i) => memory.call(project, 'write', { path: `notes/concurrent-${i}.md`, body: `# Concorrência ${i}\nCORE_CONCURRENT_${i}` })));
+  for (let i = 0; i < 3; i++) assert.match((await memory.call(project, 'read', { path: `notes/concurrent-${i}.md` })).body, new RegExp(`CORE_CONCURRENT_${i}`));
   await memory.call(project, 'write', { path: 'notes/decisao.md', body: '# Autenticação\nUsar sessão local. Validação com acentos: ação, memória.' });
   assert.equal((await memory.call(project, 'read', { path: 'notes/decisao.md' })).title, 'Autenticação');
   assert.ok((await memory.call(project, 'query', { query: 'Autenticação' })).hits.length);
   assert.equal((await memory.call(other, 'query', { query: 'Autenticação' })).hits.length, 0);
+  const current = await memory.call(project, 'read', { path: 'notes/decisao.md' });
+  await memory.call(project, 'write', { path: current.path, body: '# Autenticação\nCONTEXT_BODY_ONLY_9284: manter sessão local.', pinned: true, expected_page_id: current.page_id });
+  await assert.rejects(memory.call(project, 'write', { path: current.path, body: 'stale edit', expected_page_id: current.page_id }), /precondition|latest|version/i);
+  await assert.rejects(memory.call(project, 'write', { path: current.path, body: 'duplicate create', create_only: true }), /precondition|exist/i);
+  const context = await memory.context(project, 'Autenticação');
+  assert.match(context.text, /CONTEXT_BODY_ONLY_9284/);
+  assert.ok(context.text.length <= 4500); assert.ok(JSON.parse(context.text).pages.length);
+  assert.equal(context.warnings.length, 0);
   const handoff = await memory.call(project, 'handoff_begin', { summary: 'Retomar a integração', next_steps: ['Revisar o resultado'] });
   const claimed = await memory.call(project, 'handoff_accept', { handoff_id: handoff.handoff_id });
   assert.equal(claimed.status, 'claimed');
   assert.notEqual((await memory.call(project, 'handoff_accept', { handoff_id: handoff.handoff_id })).status, 'claimed');
   await memory.dispose(); memory = new Memory(directory);
-  assert.match((await memory.call(project, 'read', { path: 'notes/decisao.md' })).body, /ação, memória/);
-  console.log(JSON.stringify({ passed: true, unicode: true, projectIsolation: true, persistedAfterRestart: true, handoffClaimedOnce: true, record: directory }));
+  assert.match((await memory.call(project, 'read', { path: 'notes/decisao.md' })).body, /CONTEXT_BODY_ONLY_9284/);
+  console.log(JSON.stringify({ passed: true, officialStatusTool: true, concurrentWrites: 3, conditionalWrites: true, hydratedContext: true, unicode: true, projectIsolation: true, persistedAfterRestart: true, handoffClaimedOnce: true, record: directory }));
 } finally { await memory.dispose(); }

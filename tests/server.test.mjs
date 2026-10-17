@@ -5,8 +5,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { WebSocket } from 'ws';
 import http from 'node:http';
+import net from 'node:net';
 
-const port = 14317;
+const probe = net.createServer();
+await new Promise(resolve => probe.listen(0, '127.0.0.1', resolve));
+const port = probe.address().port;
+await new Promise(resolve => probe.close(resolve));
 const origin = `http://127.0.0.1:${port}`;
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(check, label, timeout = 12000) {
@@ -20,22 +24,26 @@ test('local server and real independent PTYs', { timeout: 60000 }, async t => {
   fs.mkdirSync(bin);
   if (process.platform === 'win32') {
     fs.writeFileSync(path.join(bin, 'codex.cmd'), '@"%ORQUESTRA_FIXTURE_NODE%" "%ORQUESTRA_FIXTURE_SCRIPT%" SHIM\r\n');
+    // Discovery must not execute the user's real version probes or installers.
+    for (const command of ['claude', 'gemini', 'opencode', 'agy', 'freebuff', 'hermes']) fs.writeFileSync(path.join(bin, `${command}.cmd`), '@exit /b 0\r\n');
   }
   let child, cookie, ws;
   const messages = [];
   async function boot() {
     let output = '';
-    child = spawn(process.execPath, ['server/index.mjs'], { cwd: process.cwd(), env: { ...process.env, PATH: bin + path.delimiter + process.env.PATH, PORT: String(port), ORQUESTRA_DATA_DIR: temp, ORQUESTRA_FIXTURE_NODE: process.execPath, ORQUESTRA_FIXTURE_SCRIPT: path.join(process.cwd(), 'tests/fixtures/echo-cli.mjs') }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const env = { ...process.env, PATH: bin + path.delimiter + process.env.PATH, PORT: String(port), ORQUESTRA_DATA_DIR: temp, ORQUESTRA_MEMORY_BIN: path.join(temp, 'memory-not-installed'), ORQUESTRA_FIXTURE_NODE: process.execPath, ORQUESTRA_FIXTURE_SCRIPT: path.join(process.cwd(), 'tests/fixtures/echo-cli.mjs') };
+    delete env.NODE_TEST_CONTEXT;
+    child = spawn(process.execPath, ['server/index.mjs'], { cwd: process.cwd(), env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     child.stdout.on('data', d => output += d); child.stderr.on('data', d => output += d);
     await until(() => output.includes('Orquestra disponível') || child.exitCode !== null, 'servidor iniciar');
     assert.equal(child.exitCode, null, output);
-    const home = await fetch(origin);
+    const home = await fetch(origin, { signal: AbortSignal.timeout(5000) });
     assert.equal(home.status, 200);
     cookie = home.headers.get('set-cookie').split(';')[0];
     assert.match(home.headers.get('set-cookie'), /HttpOnly; SameSite=Strict/);
   }
   async function call(route, method = 'GET', data) {
-    const res = await fetch(origin + '/api' + route, { method, headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' }, ...(data !== undefined && { body: JSON.stringify(data) }) });
+    const res = await fetch(origin + '/api' + route, { method, signal: AbortSignal.timeout(5000), headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' }, ...(data !== undefined && { body: JSON.stringify(data) }) });
     return { status: res.status, data: await res.json() };
   }
   async function connect() {
@@ -43,15 +51,23 @@ test('local server and real independent PTYs', { timeout: 60000 }, async t => {
     ws.on('message', raw => messages.push(JSON.parse(raw)));
     await new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); });
   }
+  async function stopServer() {
+    const running = child;
+    if (!running || running.exitCode !== null || running.signalCode !== null) return;
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { running.kill(); reject(new Error('Servidor de teste não encerrou em 7 segundos.')); }, 7000);
+      running.once('exit', () => { clearTimeout(timer); resolve(); });
+      running.kill();
+    });
+  }
   t.after(async () => {
     ws?.terminate();
-    if (child && child.exitCode === null) {
+    if (child && child.exitCode === null && child.signalCode === null) {
       try { const { data } = await call('/state'); for (const a of data.agents || []) await call(`/agents/${a.id}/stop`, 'POST'); } catch {}
-      child.kill();
-      await new Promise(resolve => child.once('exit', resolve));
+      await stopServer();
     }
     // Only this test's freshly-created directory is removed.
-    fs.rmSync(temp, { recursive: true, force: true });
+    fs.rmSync(temp, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   });
   await boot();
   await t.test('rejects unauthenticated, cross-origin, and rebound-host requests', async () => {
@@ -70,6 +86,14 @@ test('local server and real independent PTYs', { timeout: 60000 }, async t => {
   await connect();
   const state = (await call('/state')).data;
   const projectId = state.projects[0].id;
+  await t.test('worktree and cross-review APIs retain local authentication and project boundaries', async () => {
+    assert.deepEqual((await call(`/projects/${projectId}/worktrees`)).data, []);
+    assert.deepEqual((await call(`/projects/${projectId}/reviews`)).data, []);
+    assert.equal((await fetch(origin + `/api/projects/${projectId}/reviews`)).status, 401);
+    assert.equal((await call(`/projects/${projectId}/worktrees/00000000-0000-0000-0000-000000000000/prepare`, 'POST', {})).status, 400);
+    assert.equal((await call(`/projects/${projectId}/reviews`, 'POST', { prompt: 'Do not run any real CLI' })).status, 400);
+    assert.equal((await call(`/projects/${projectId}/reviews/00000000-0000-0000-0000-000000000000/validate`, 'POST', {})).status, 400);
+  });
   const fixture = path.join(process.cwd(), 'tests', 'fixtures', 'echo-cli.mjs');
   await t.test('launches a preset through a Windows cmd shim in a path with spaces', async t => {
     if (process.platform !== 'win32') return t.skip();
@@ -99,6 +123,9 @@ test('local server and real independent PTYs', { timeout: 60000 }, async t => {
       await until(() => messages.some(m => m.type === 'state' && m.agents.some(a => a.id === failed.id && a.status === 'running' && a.mode === 'fallback')), 'shell de recuperação ficar disponível');
       const recovered = (await call('/state')).data.agents.find(a => a.id === failed.id);
       assert.equal(recovered.mode, 'fallback');
+      const stateIndex = messages.findIndex(m => m.type === 'state' && m.agents.some(a => a.id === failed.id && a.sessionId === recovered.sessionId));
+      const noticeIndex = messages.findIndex(m => m.type === 'output' && m.id === failed.id && m.sessionId === recovered.sessionId && m.data.includes('Shell disponível'));
+      assert.ok(stateIndex >= 0 && noticeIndex > stateIndex, 'A nova sessão deve chegar antes de sua primeira saída.');
       assert.notEqual(recovered.agentExitCode, 0);
       const blocked = await call(`/agents/${failed.id}/prompt`, 'POST', { text: 'Do not run this in a shell' });
       assert.equal(blocked.status, 400);
@@ -141,18 +168,21 @@ test('local server and real independent PTYs', { timeout: 60000 }, async t => {
     assert.deepEqual((await call('/state')).data.agents.map(a => a.pid), before.map(a => a.pid));
   });
   await t.test('stops, restarts and removes sessions', async () => {
-    const previous = (await call('/state')).data.agents.find(item => item.id === a.id).pid;
+    const oldSession = (await call('/state')).data.agents.find(item => item.id === a.id);
+    const previous = oldSession.pid;
     assert.equal((await call(`/agents/${a.id}/stop`, 'POST')).status, 200);
     assert.equal((await call(`/agents/${a.id}/input`, 'POST', { data: 'test' })).status, 400);
     await pause(350);
     assert.equal((await call(`/agents/${a.id}/start`, 'POST')).status, 200);
     assert.notEqual((await call('/state')).data.agents.find(item => item.id === a.id).pid, previous);
+    assert.notEqual((await call('/state')).data.agents.find(item => item.id === a.id).sessionId, oldSession.sessionId);
+    assert.equal((await call(`/agents/${a.id}/input`, 'POST', { data: 'STALE_SESSION\r', sessionId: oldSession.sessionId })).status, 400);
     assert.equal((await call(`/agents/${b.id}`, 'DELETE')).status, 200);
     assert.ok(!(await call('/state')).data.agents.some(item => item.id === b.id));
     await call(`/agents/${a.id}/stop`, 'POST');
   });
   await t.test('persists configuration across server restarts without auto-starting agents', async () => {
-    ws.terminate(); child.kill(); await new Promise(resolve => child.once('exit', resolve));
+    ws.terminate(); await stopServer();
     await boot();
     const saved = (await call('/state')).data;
     assert.equal(saved.agents.length, 1);

@@ -12,6 +12,8 @@ import { automatedProviders } from './cli-adapters.mjs';
 import { Memory } from './memory.mjs';
 import { LiveTasks } from './live-tasks.mjs';
 import { pickDirectory } from './folder-picker.mjs';
+import { Worktrees } from './worktrees.mjs';
+import { Reviews } from './reviews.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const port = Number(process.env.PORT || 4317);
@@ -32,8 +34,15 @@ const broadcast = data => {
 const terminals = new Terminals(event => broadcast(event.type === 'changed' ? snapshot() : event));
 const memory = new Memory(path.dirname(workspace.file), () => broadcast(snapshot()));
 const live = new LiveTasks(terminals, memory);
-const tasks = new TaskManager(workspace, () => broadcast(snapshot()), { live, memory });
+let reviews;
+const tasks = new TaskManager(workspace, () => { broadcast(snapshot()); queueMicrotask(() => reviews?.tick()); }, { live, memory });
 const orchestration = new Orchestration(workspace, terminals, tasks, port, memory, live);
+const worktrees = new Worktrees(workspace, terminals, tasks);
+tasks.git = worktrees;
+orchestration.worktrees = worktrees;
+reviews = new Reviews(workspace, tasks, worktrees, id => orchestration.workers(id), () => broadcast(snapshot()));
+reviews.memory = memory;
+orchestration.reviews = reviews;
 function snapshot() {
   return { type: 'state', projects: workspace.state.projects, agents: workspace.state.agents.map(a => {
     const task = tasks.jobs.find(t => t.agentId === a.id && ['running', 'cancelling'].includes(t.status));
@@ -51,11 +60,13 @@ function json(res, code, data) {
   res.end(JSON.stringify(data));
 }
 async function body(req) {
-  let content = '';
+  const chunks = []; let size = 0;
   for await (const chunk of req) {
-    content += chunk;
-    if (content.length > 65536) throw new Error('Pedido muito grande.');
+    size += chunk.length;
+    if (size > 65536) throw new Error('Pedido muito grande.');
+    chunks.push(chunk);
   }
+  const content = Buffer.concat(chunks).toString('utf8');
   const data = JSON.parse(content || '{}');
   if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Pedido inválido.');
   return data;
@@ -90,6 +101,26 @@ const server = http.createServer(async (req, res) => {
         const agent = workspace.addAgent(await body(req));
         broadcast(snapshot()); return json(res, 201, agent);
       }
+      const gitMatch = pathname.match(/^\/api\/projects\/([a-f0-9-]+)\/worktrees(?:\/([a-f0-9-]+)(?:\/(prepare|commit|settings))?)?$/);
+      if (gitMatch) {
+        const [, projectId, agentId, action] = gitMatch;
+        if (req.method === 'GET') return json(res, 200, agentId ? worktrees.inspect(projectId, agentId) : worktrees.list(projectId));
+        if (req.method === 'POST' && agentId) {
+          const input = await body(req);
+          const result = action === 'prepare' ? worktrees.prepare(projectId, agentId) : action === 'commit' ? worktrees.commit(projectId, agentId, input, true) : action === 'settings' ? worktrees.configure(projectId, agentId, input) : null;
+          if (result) { broadcast(snapshot()); return json(res, 200, result); }
+        }
+      }
+      const reviewMatch = pathname.match(/^\/api\/projects\/([a-f0-9-]+)\/reviews(?:\/([a-f0-9-]+)(?:\/(retry|validate))?)?$/);
+      if (reviewMatch) {
+        const [, projectId, id, action] = reviewMatch;
+        if (req.method === 'GET') return json(res, 200, id ? reviews.get(projectId, id) : reviews.list(projectId));
+        if (req.method === 'POST') {
+          if (!id) return json(res, 201, reviews.create(projectId, await body(req)));
+          if (action === 'retry') return json(res, 200, reviews.retry(projectId, id));
+          if (action === 'validate') return json(res, 200, await reviews.validate(projectId, id));
+        }
+      }
       const coordinatorMatch = pathname.match(/^\/api\/projects\/([a-f0-9-]+)\/coordinator$/);
       if (req.method === 'POST' && coordinatorMatch) return json(res, 200, orchestration.start(coordinatorMatch[1], (await body(req)).agentId));
       const memoryMatch = pathname.match(/^\/api\/projects\/([a-f0-9-]+)\/memory\/(status|query|write|delete|read|recent|briefing|handoff_list|handoff_begin|handoff_accept)$/);
@@ -123,10 +154,10 @@ const server = http.createServer(async (req, res) => {
         if (req.method === 'POST') {
           if (match[2] === 'start') { if (agent.coordinator) orchestration.start(agent.projectId); else orchestration.startWorker(agent); }
           else if (match[2] === 'stop') terminals.stop(agent.id);
-          else if (match[2] === 'input') terminals.write(agent.id, (await body(req)).data);
+          else if (match[2] === 'input') { const input = await body(req); terminals.write(agent.id, input.data, input.sessionId); }
           else if (match[2] === 'prompt') {
             const input = await body(req);
-            await terminals.prompt(agent.id, input.text, { submit: input.submit !== false, bracketed: input.bracketed === true });
+            await terminals.prompt(agent.id, input.text, { submit: input.submit !== false, bracketed: input.bracketed === true, sessionId: input.sessionId });
           }
           else return json(res, 404, { error: 'Ação não encontrada.' });
           return json(res, 200, { ok: true });
@@ -166,12 +197,12 @@ sockets.on('connection', ws => {
   ws.on('error', () => {});
   // Snapshot and replay share the same event loop; live output follows without a gap.
   send(ws, snapshot());
-  for (const [id, session] of terminals.sessions) send(ws, { type: 'replay', id, data: session.history });
+  for (const [id, session] of terminals.sessions) send(ws, { type: 'replay', id, sessionId: session.id, data: session.history });
   ws.on('message', raw => {
     try {
       const message = JSON.parse(raw.toString());
-      if (message.type === 'input') terminals.write(message.id, message.data);
-      else if (message.type === 'resize') terminals.resize(message.id, message.cols, message.rows);
+      if (message.type === 'input') terminals.write(message.id, message.data, message.sessionId);
+      else if (message.type === 'resize') terminals.resize(message.id, message.cols, message.rows, message.sessionId);
     } catch (error) { send(ws, { type: 'error', message: error.message }); }
   });
 });
@@ -188,7 +219,10 @@ let closing = false;
 async function shutdown() {
   if (closing) return;
   closing = true;
+  // Bound the entire shutdown, including a stalled memory transport/drain.
+  setTimeout(() => process.exit(0), 5000).unref();
   tasks.dispose();
+  reviews.dispose();
   terminals.dispose();
   await memory.dispose();
   for (const ws of sockets.clients) ws.terminate();

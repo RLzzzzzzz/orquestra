@@ -55,7 +55,7 @@ Validação local sugerida, sem chamadas automáticas aos modelos:
 4. Feche a janela e confirme que o servidor e os processos iniciados pelos terminais encerraram; reabra e confira projetos, histórico e preferências.
 5. Execute o portátil em uma máquina Windows x64 sem Node no PATH; confira o terminal e os CLIs disponíveis. Faça a mesma verificação com o instalador, se for distribuí-lo.
 
-O empacotamento e os testes de execução precisam ser feitos localmente. Para referência, a separação do runtime evita a [diferença de ABI dos módulos nativos no Electron](https://www.electronjs.org/docs/latest/tutorial/using-native-node-modules); a janela usa isolamento de contexto, sandbox e Node desabilitado conforme as [orientações do Electron](https://www.electronjs.org/docs/latest/tutorial/security).
+O CI também prepara e empacota o desktop Windows, verificando as dependências e os imports do backend incluído. A abertura da janela e os fluxos com CLIs autenticados continuam exigindo validação manual. Para referência, a separação do runtime evita a [diferença de ABI dos módulos nativos no Electron](https://www.electronjs.org/docs/latest/tutorial/using-native-node-modules); a janela usa isolamento de contexto, sandbox e Node desabilitado conforme as [orientações do Electron](https://www.electronjs.org/docs/latest/tutorial/security).
 
 ## Requisitos para executar pelo código-fonte
 
@@ -99,12 +99,14 @@ A aba **Memória** usa o mecanismo original [akitaonrails/ai-memory](https://git
 - Notas em Markdown, busca textual, histórico Git e índice local do AI Memory.
 - Decisões, aprendizados e resultados compartilhados entre os agentes do mesmo projeto.
 - Registro automático da instrução e do resultado das tarefas delegadas; erros de gravação ficam em `memoryError` na tarefa.
-- Contexto recente inserido na próxima delegação, além de ferramentas MCP para consultar e salvar memórias.
+- Contexto da próxima delegação com busca relacionada ao pedido e leitura limitada do conteúdo de até cinco páginas, além de ferramentas MCP para consultar e salvar memórias.
 - Handoffs explícitos para passar contexto entre agentes ou sessões, aceitos uma única vez.
 
 Os agentes podem usar `buscar_memoria`, `salvar_memoria`, `ler_memoria`, `resumo_memoria`, `criar_handoff`, `listar_handoffs` e `aceitar_handoff`. A integração fixa o projeto no servidor; o modelo não escolhe o escopo de outros projetos. Notas também podem ser criadas, editadas e consultadas na interface. Cada tarefa recebe um contexto limitado, para não reenviar toda a memória.
 
-A wiki fica em `.local/memory/wiki`, com seu próprio Git, e o índice em `.local/memory/db`. O serviço não instala hooks globais, não importa conversas antigas dos fornecedores e não captura automaticamente toda conversa manual: a captura automática desta integração abrange tarefas delegadas. Consolidação com modelo, embeddings e rotinas de reescrita continuam nas configurações do AI Memory e não são ativadas por esta integração. O caminho padrão não precisa de chave de API nem faz chamadas adicionais a modelos para armazenar e buscar memória.
+Ao editar uma página pelo MCP, leia-a e passe seu `page_id` como `expected_page_id` em `salvar_memoria` para recusar uma edição sobre versão antiga; use `create_only: true` para criar sem sobrescrever. O editor da interface aplica essas condições automaticamente. O diagnóstico da integração e as lacunas de captura de sessões estão em [Auditoria do AI Memory](docs/auditoria-ai-memory-2026-10-17.md).
+
+A wiki fica em `.local/memory/wiki`, com seu próprio Git, e o índice em `.local/memory/db`. Um único engine oficial HTTP local autenticado atende MCP e hooks. Novas sessões abertas pelo aplicativo recebem integração nativa para OpenCode, Codex, Claude, Gemini, Antigravity e Hermes. Gemini, Antigravity e Hermes têm captura comprovada com sessões reais; o Codex exige revisão e aprovação pelo próprio CLI em `/hooks`. Claude está implementado, mas não foi executado neste ambiente por não estar instalado. Freebuff, shell e comandos personalizados continuam sem captura nativa. O serviço não instala hooks globais nem importa conversas antigas. Consolidação com modelo, embeddings e rotinas de reescrita continuam nas configurações do AI Memory. O armazenamento e a busca padrão não exigem chave de API. Consulte [a validação da build de memória e notificações](docs/build-memoria-notificacoes-2026-10-17.md) para evidências e limites.
 
 Tarefas na mesma pasta, ou em pastas sobrepostas, entram em fila. Até três tarefas em pastas distintas podem rodar ao mesmo tempo. Os terminais interativos não são bloqueados pela fila. Evite editar os mesmos arquivos em mais de um agente simultaneamente.
 
@@ -120,6 +122,10 @@ Tarefas na mesma pasta, ou em pastas sobrepostas, entram em fila. Até três tar
 Instale e autentique cada CLI conforme as instruções do seu fornecedor. O Orquestra não pede nem armazena chaves de API. Depois de instalar um CLI ou mudar o PATH, reinicie o Orquestra para atualizar a detecção. Inicie pelo `iniciar.cmd` ou em um terminal normal do seu usuário para que os processos encontrem os CLIs e suas autenticações.
 
 ## Desenvolvimento e verificação
+
+O CI Windows, os comandos equivalentes locais, worktrees por agente e o fluxo de revisão cruzada estão descritos em [CI, worktrees e revisão cruzada](docs/ci-worktrees-revisao.md).
+
+O contrato de sessões, confirmação de recebimento, memória compartilhada e testes reais entre agentes está em [Estabilização do core](docs/core-estabilizacao.md).
 
 ```powershell
 npm.cmd install
@@ -140,7 +146,7 @@ O serviço local escuta em `127.0.0.1` e protege a interface com uma sessão loc
 - O layout e as ações recentes ficam no armazenamento do navegador.
 - Reiniciar o serviço encerra os terminais e interrompe tarefas em andamento. Agentes e tarefas concluídas continuam no histórico.
 
-As tarefas usam as permissões configuradas em cada CLI. A conclusão do processo confirma que ele terminou, não que o resultado está correto. O Orquestra não cria worktrees nem mescla alterações automaticamente.
+As tarefas usam as permissões configuradas em cada CLI. A conclusão do processo confirma que ele terminou, não que o resultado está correto. Worktrees são opcionais e preparadas explicitamente pela interface ou pelo coordenador. Push, merge e remoção de worktrees não são automatizados.
 
 ## Estrutura
 

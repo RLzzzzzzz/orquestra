@@ -74,6 +74,22 @@ test('restart interrupts persisted jobs without resubmitting them', async t => {
   f.children[0].end();
 });
 
+test('request retry returns the existing result after the executor disconnects', async t => {
+  const f = fixture(t), job = f.create('stable-request'); await tick(); f.children[0].end();
+  f.manager.live = { available: () => false };
+  assert.equal(f.create('stable-request').id, job.id);
+  assert.equal(f.create('stable-request').status, 'succeeded');
+  assert.throws(() => f.create('new-request'), /terminal aberto/);
+});
+
+test('task status distinguishes successful execution from memory persistence failure', async t => {
+  const f = fixture(t); f.manager.memory = { recordTask: async () => { throw new Error('wiki write failed'); } };
+  const job = f.create('memory-status'); await tick(); f.children[0].end(); await tick();
+  assert.equal(f.manager.get(job.id).status, 'succeeded');
+  assert.equal(f.manager.get(job.id).memoryStatus, 'failed');
+  assert.match(f.manager.get(job.id).memoryError, /wiki write failed/);
+});
+
 test('project board tasks persist separately from delegated execution and support paused status', t => {
   const f = fixture(t);
   const task = f.manager.createBoard(f.projectId, { title: 'Definir interface', description: 'Aguardar revisão', status: 'in_progress' }, 'user');
@@ -81,6 +97,29 @@ test('project board tasks persist separately from delegated execution and suppor
   assert.equal(f.manager.updateBoard(task.id, f.projectId, { status: 'paused' }, 'executor').status, 'paused');
   assert.equal(f.manager.summaries(f.projectId).find(item => item.id === task.id).updatedBy, 'executor');
   assert.throws(() => f.manager.updateBoard(task.id, 'foreign', { status: 'done' }), /não encontrada/);
+});
+
+test('validation reserves overlapping folders and releases queued tasks only after checks finish', async t => {
+  const f = fixture(t);
+  const release = f.manager.reserve(f.dir, 'validation');
+  const job = f.create('reserved'); await tick(); assert.equal(f.children.length, 0);
+  assert.throws(() => f.manager.reserve(f.dir, 'other'), /Aguarde/);
+  release(); assert.equal(f.children.length, 1);
+  assert.throws(() => f.manager.reserve(f.dir, 'active'), /Aguarde/);
+  f.children[0].end(); assert.equal(f.manager.get(job.id).status, 'succeeded');
+});
+
+test('MCP Git permissions bind workers to their worktree and coordinator cannot enable automatic commits', async t => {
+  const f = fixture(t), orchestration = new Orchestration(f.workspace, {}, f.manager, 0);
+  let committed;
+  orchestration.worktrees = { inspect: (projectId, agentId) => ({ projectId, agentId }), commit: (...args) => { committed = args; return { ok: true }; } };
+  const worker = { role: 'worker', projectId: f.projectId, agentId: f.agent.id };
+  assert.equal((await orchestration.call(worker, 'consultar_worktree')).agentId, f.agent.id);
+  await assert.rejects(orchestration.call(worker, 'consultar_worktree', { agent_id: 'foreign' }), /própria/);
+  await assert.rejects(orchestration.call(worker, 'preparar_worktree', { agent_id: f.agent.id }), /não podem/);
+  await assert.rejects(orchestration.call({ ...worker, role: 'coordinator' }, 'enable_auto_commit'), /desconhecida/);
+  await orchestration.call(worker, 'commit_worktree', { message: 'feat: teste', revision: 'reviewed' });
+  assert.equal(committed[1], f.agent.id); assert.equal(committed[3], false); assert.equal(committed[4], true);
 });
 
 test('provider events distinguish completion, errors and permission requests', () => {

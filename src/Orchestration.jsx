@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Network, Play, Send, Square, RotateCcw, Terminal, Check, Clock, AlertCircle } from 'lucide-react';
+import WorkReviewPanel from './WorkReviewPanel.jsx';
 
 const labels = { queued: 'Na fila', running: 'Executando', cancelling: 'Cancelando', succeeded: 'Concluída', failed: 'Falhou', cancelled: 'Cancelada', interrupted: 'Interrompida', awaiting_approval: 'Precisa de ação' };
 const active = task => ['queued', 'running', 'cancelling'].includes(task.status);
@@ -15,8 +16,8 @@ export default function OrchestrationPanel({ project, agents, providers, tasks, 
   const coordinator = agents.find(a => a.coordinator);
   const candidates = agents.filter(a => !a.coordinator && providers.some(p => p.id === a.provider && p.coordinator && p.available));
   const leaderId = candidates.some(a => a.id === leader) ? leader : candidates.find(a => a.id === coordinator?.sourceAgentId)?.id || candidates[0]?.id || '';
-  const workers = agents.filter(a => !a.coordinator && a.status === 'running' && a.mode === 'agent' && a.managed);
-  const history = tasks.filter(t => t.projectId === project?.id).slice().reverse();
+  const workers = agents.filter(a => !a.coordinator && a.status === 'running' && a.mode === 'agent' && a.managed && a.mcpReady);
+  const history = tasks.filter(t => t.projectId === project?.id && t.kind === 'delegated').slice().reverse();
   const selectedId = history.some(t => t.id === selected) ? selected : history[0]?.id;
   const selectedTask = history.find(t => t.id === selectedId);
   useEffect(() => { setSelected(null); setWorker(''); setInstruction(''); }, [project?.id]);
@@ -37,9 +38,10 @@ export default function OrchestrationPanel({ project, agents, providers, tasks, 
     setBusy(true); try { await action(); } catch (error) { notify(error.message, true); } finally { setBusy(false); }
   };
   return <div className="orchestration-view">
+    {project && <WorkReviewPanel key={project.id} project={project} agents={agents} connected={connected} request={request} notify={notify} />}
     <div className="orchestration-intro"><div><span className="eyebrow">COORDENADOR DO PROJETO</span><h2>Um objetivo. Uma equipe de agentes.</h2><p>Escolha quem coordena e descreva o objetivo no terminal dele. O agente distribui o trabalho e consulta os resultados pelo Orquestra.</p></div><div className="coordinator-choice"><label>Quem coordena?<select aria-label="Escolher coordenador" value={leaderId} onChange={e => setLeader(e.target.value)} disabled={busy}>{!candidates.length && <option value="">Adicione um CLI compatível</option>}{candidates.map(a => <option key={a.id} value={a.id}>{a.name} · {a.provider}</option>)}</select></label><small>Abre uma sessão separada. Trocar encerra a sessão anterior do coordenador.</small><button className="button primary" disabled={!connected || busy || !project || !leaderId} onClick={() => perform(() => onCoordinator(leaderId))}><Network size={15} />{coordinator?.status === 'running' && coordinator.mode === 'coordinator' && coordinator.sourceAgentId === leaderId ? 'Ver coordenador' : 'Abrir coordenador'}</button></div></div>
     <p className="field-help">Coordenadores: Codex, OpenCode, Claude e Freebuff. Antigravity e Hermes: terminais manuais, sem automação habilitada. O Freebuff pode solicitar confiança no MCP na primeira abertura.</p>
-    <div className="orchestration-stats"><span><Network size={15} /><strong>{workers.length}</strong> executores disponíveis</span><span><Play size={14} /><strong>{history.filter(t => t.status === 'running').length}</strong> executando</span><span><Clock size={14} /><strong>{history.filter(t => t.status === 'queued').length}</strong> na fila</span><span><Check size={14} /><strong>{history.filter(t => t.status === 'succeeded').length}</strong> concluídas</span></div>
+    <div className="orchestration-stats"><span><Network size={15} /><strong>{workers.length}</strong> executores disponíveis</span><span><Play size={14} /><strong>{history.filter(t => t.status === 'running').length}</strong> executando</span><span><Clock size={14} /><strong>{history.filter(t => ['queued', 'awaiting_approval'].includes(t.status)).length}</strong> aguardando</span><span><Check size={14} /><strong>{history.filter(t => t.status === 'succeeded').length}</strong> concluídas</span><span><AlertCircle size={14} /><strong>{history.filter(t => ['failed', 'interrupted'].includes(t.status)).length}</strong> com erro</span></div>
     <div className="orchestration-guide"><p><strong>Como começar:</strong> adicione executores em “Novo agente”, abra o coordenador e peça, por exemplo: “Delegue ao OpenCode a revisão do README e depois resuma o resultado”.</p><p>Tarefas automáticas na mesma pasta entram em fila. Em pastas separadas, até três podem executar em paralelo. O coordenador envia a tarefa à conversa já aberta de cada executor. Veja as respostas ao vivo na aba Terminais.</p></div>
     <div className="task-history-heading"><h3>Tarefas delegadas</h3><button className="button" disabled={!workers.length || !connected} onClick={() => setShowDelegate(!showDelegate)}><Send size={13} />Delegar diretamente</button></div>
     {showDelegate && <form className="delegate-form" onSubmit={event => {

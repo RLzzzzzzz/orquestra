@@ -1,9 +1,11 @@
-const { app, BrowserWindow, dialog } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Notification } = require('electron');
+const { registerNotifications } = require('./notifications.cjs');
 const { fork, spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
 app.setName('Orquestra');
+if (process.platform === 'win32') app.setAppUserModelId('br.orquestra.desktop');
 const profile = path.join(app.getPath('appData'), 'Orquestra');
 fs.mkdirSync(profile, { recursive: true });
 app.setPath('userData', profile);
@@ -104,12 +106,13 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.whenReady().then(async () => {
     if (quitting) return;
+    registerNotifications({ ipcMain, Notification, getWindow: () => window });
     const url = await startServer();
     if (quitting) return;
     window = new BrowserWindow({
       title: 'Orquestra', width: 1440, height: 960, minWidth: 900, minHeight: 600,
       backgroundColor: '#111318', show: false, autoHideMenuBar: true,
-      webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
+      webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true },
     });
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('will-navigate', (event, target) => {

@@ -19,7 +19,7 @@ export class TaskManager {
     this.timeoutMs = options.timeoutMs || 30 * 60 * 1000;
     this.file = path.join(path.dirname(workspace.file), 'tasks.json');
     this.jobs = fs.existsSync(this.file) ? JSON.parse(fs.readFileSync(this.file, 'utf8')) : [];
-    this.running = new Map(); this.closed = false;
+    this.running = new Map(); this.holds = new Map(); this.closed = false;
     for (const job of this.jobs) if (activeTaskStates.includes(job.status)) {
       job.status = 'interrupted'; job.error = 'O serviço foi reiniciado. Reenvie a tarefa se desejar continuar.'; job.finishedAt = Date.now();
     }
@@ -40,20 +40,21 @@ export class TaskManager {
   create(projectId, input) {
     if (this.closed) throw new Error('O serviço está encerrando.');
     const agent = this.workspace.state.agents.find(a => a.id === input.agentId && a.projectId === projectId);
-    if (!agent || agent.coordinator || !(this.live ? this.live.available(agent.id) : automatedProviders.includes(agent.provider))) throw new Error('Escolha um executor com terminal aberto e integração MCP neste projeto.');
     const prompt = textField(input.prompt, 'Tarefa', 16000);
     const requestId = textField(input.requestId, 'Identificador do pedido', 120);
     const previous = this.jobs.find(j => j.projectId === projectId && j.requestId === requestId);
     if (previous) {
-      if (previous.agentId !== agent.id || previous.prompt !== prompt) throw new Error('Identificador já usado para outra tarefa.');
+      if (previous.agentId !== input.agentId || previous.prompt !== prompt) throw new Error('Identificador já usado para outra tarefa.');
       return this.get(previous.id);
     }
+    if (!agent || agent.coordinator || !(this.live ? this.live.available(agent.id) : automatedProviders.includes(agent.provider))) throw new Error('Escolha um executor com terminal aberto e integração MCP neste projeto.');
+    if (agent.worktree) this.git?.verify(agent);
     if (this.jobs.filter(j => activeTaskStates.includes(j.status)).length >= 30) throw new Error('A fila já possui 30 tarefas ativas.');
     if (this.jobs.length >= 500) throw new Error('Limite de 500 tarefas no histórico atingido.');
     const cwd = directory(agent.cwd);
     const job = {
       id: randomUUID(), requestId, projectId, agentId: agent.id, agentName: agent.name, provider: agent.provider,
-      kind: 'delegated', source: input.source || 'agent', role: agent.role, cwd, cwdKey: canonical(cwd), title: (typeof input.title === 'string' ? input.title.trim() : prompt.split('\n')[0]).slice(0, 140) || 'Tarefa delegada',
+      kind: 'delegated', source: input.source || 'agent', role: agent.role, worktree: agent.worktree ? { ...agent.worktree } : undefined, cwd, cwdKey: canonical(cwd), title: (typeof input.title === 'string' ? input.title.trim() : prompt.split('\n')[0]).slice(0, 140) || 'Tarefa delegada',
       prompt, status: 'queued', createdAt: Date.now(), output: '', result: '', error: '',
     };
     this.jobs.push(job); this.changed(); queueMicrotask(() => this.pump());
@@ -84,9 +85,16 @@ export class TaskManager {
     if (this.closed) return;
     for (const job of this.jobs.filter(j => j.status === 'queued')) {
       if (this.running.size >= this.maxParallel) break;
+      if ([...this.holds.values()].some(key => overlap(key, job.cwdKey))) continue;
       if ([...this.running.values()].some(r => overlap(r.job.cwdKey, job.cwdKey) || r.job.agentId === job.agentId)) continue;
       this.run(job);
     }
+  }
+  reserve(cwd, id) {
+    const key = canonical(cwd);
+    if ([...this.running.values()].some(r => overlap(r.job.cwdKey, key)) || [...this.holds.values()].some(other => overlap(other, key))) throw new Error('Aguarde as tarefas que usam esta pasta antes de validar.');
+    this.holds.set(id, key);
+    return () => { this.holds.delete(id); this.pump(); };
   }
   append(job, text) {
     job.output = (job.output + text).slice(-262144);
@@ -106,16 +114,23 @@ export class TaskManager {
         if (job.status === 'failed' && !job.error) job.error = `O CLI terminou sem confirmar um resultado completo (saída ${code ?? 'indisponível'}). Consulte a saída da tarefa.`;
       }
       this.append(job, `\n[Orquestra] ${job.status}${job.error ? ': ' + job.error : ''}\n`);
-      if (this.memory) this.memory.recordTask(job).catch(error => { job.memoryError = error.message.slice(0, 1000); this.changed(); });
+      if (this.memory) {
+        job.memoryStatus = 'pending';
+        this.memory.recordTask(job).then(() => { job.memoryStatus = 'saved'; job.memoryError = ''; this.changed(); }).catch(error => { job.memoryStatus = 'failed'; job.memoryError = error.message.slice(0, 1000); this.changed(); });
+      }
       this.changed(); this.pump();
     };
     try {
+      if (job.worktree && this.git) this.git.verify(this.workspace.state.agents.find(a => a.id === job.agentId));
       const child = this.live ? this.live.start(job) : this.spawn(job); execution.child = child;
       const decode = new StringDecoder('utf8'); let pending = '';
       const line = raw => {
         if (!raw.trim()) return;
         let event;
         try { event = JSON.parse(raw); } catch { this.append(job, raw + '\n'); return; }
+        if (event.type === 'orquestra.receipt') {
+          job.delivery = 'acknowledged'; job.receivedAt = event.receivedAt; job.sessionId = event.sessionId; this.changed(); return;
+        }
         const normalized = event.type === 'orquestra.live' ? { log: event.text } : event.type === 'orquestra.result' ? { text: event.text, completed: event.success, error: event.success ? '' : event.text } : parseWorkerEvent(job.provider, event);
         if (normalized.log) this.append(job, normalized.log + '\n');
         if (normalized.text) {
@@ -138,7 +153,7 @@ export class TaskManager {
       child.stderr.setEncoding('utf8'); child.stderr.on('data', data => this.append(job, data));
       child.on('error', error => { job.error = error.message; finish(null); });
       child.on('close', code => { pending += decode.end(); if (pending) line(pending); finish(code); });
-      execution.timer = setTimeout(() => { job.error = 'Tempo máximo de 30 minutos atingido.'; this.stop(child); }, this.timeoutMs);
+      execution.timer = setTimeout(() => { job.error = `Tempo máximo de ${Math.round(this.timeoutMs / 1000)} segundos atingido.`; this.stop(child); }, this.timeoutMs);
       this.changed();
     } catch (error) { job.error = error.message; finish(null); }
   }
