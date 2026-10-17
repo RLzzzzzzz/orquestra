@@ -102,7 +102,8 @@ test('real MCP stdio handshake, delegation, result and project boundaries', { ti
   t.after(async () => { await client.close(); await new Promise(resolve => server.close(resolve)); });
   assert.equal((await fetch(url, { method: 'POST' })).status, 401);
   await client.connect(transport);
-  assert.equal((await client.listTools()).tools.length, 5);
+  const names = (await client.listTools()).tools.map(tool => tool.name);
+  for (const name of ['listar_agentes', 'concluir_tarefa', 'buscar_memoria', 'salvar_memoria', 'criar_handoff']) assert.ok(names.includes(name));
   const invoke = async (name, args = {}) => client.callTool({ name, arguments: args });
   const workers = JSON.parse((await invoke('listar_agentes')).content[0].text);
   assert.equal(workers.agents[0].id, f.agent.id);

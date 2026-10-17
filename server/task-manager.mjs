@@ -13,6 +13,7 @@ export class TaskManager {
   constructor(workspace, emit, options = {}) {
     this.workspace = workspace; this.emit = emit;
     this.spawn = options.spawn || spawnWorker; this.kill = options.kill || stopWorker;
+    this.live = options.live; this.memory = options.memory;
     this.maxParallel = options.maxParallel || 3;
     this.timeoutMs = options.timeoutMs || 30 * 60 * 1000;
     this.file = path.join(path.dirname(workspace.file), 'tasks.json');
@@ -38,7 +39,7 @@ export class TaskManager {
   create(projectId, input) {
     if (this.closed) throw new Error('O serviço está encerrando.');
     const agent = this.workspace.state.agents.find(a => a.id === input.agentId && a.projectId === projectId);
-    if (!agent || agent.coordinator || !automatedProviders.includes(agent.provider)) throw new Error('Escolha um executor Codex, OpenCode, Claude ou Gemini deste projeto.');
+    if (!agent || agent.coordinator || !(this.live ? this.live.available(agent.id) : automatedProviders.includes(agent.provider))) throw new Error('Escolha um executor com terminal aberto e integração MCP neste projeto.');
     const prompt = textField(input.prompt, 'Tarefa', 16000);
     const requestId = textField(input.requestId, 'Identificador do pedido', 120);
     const previous = this.jobs.find(j => j.projectId === projectId && j.requestId === requestId);
@@ -83,16 +84,17 @@ export class TaskManager {
         if (job.status === 'failed' && !job.error) job.error = `O CLI terminou sem confirmar um resultado completo (saída ${code ?? 'indisponível'}). Consulte a saída da tarefa.`;
       }
       this.append(job, `\n[Orquestra] ${job.status}${job.error ? ': ' + job.error : ''}\n`);
+      if (this.memory) this.memory.recordTask(job).catch(error => { job.memoryError = error.message.slice(0, 1000); this.changed(); });
       this.changed(); this.pump();
     };
     try {
-      const child = this.spawn(job); execution.child = child;
+      const child = this.live ? this.live.start(job) : this.spawn(job); execution.child = child;
       const decode = new StringDecoder('utf8'); let pending = '';
       const line = raw => {
         if (!raw.trim()) return;
         let event;
         try { event = JSON.parse(raw); } catch { this.append(job, raw + '\n'); return; }
-        const normalized = parseWorkerEvent(job.provider, event);
+        const normalized = event.type === 'orquestra.live' ? { log: event.text } : event.type === 'orquestra.result' ? { text: event.text, completed: event.success, error: event.success ? '' : event.text } : parseWorkerEvent(job.provider, event);
         if (normalized.log) this.append(job, normalized.log + '\n');
         if (normalized.text) {
           job.result = (job.result + normalized.text + (job.provider === 'gemini' ? '' : '\n')).slice(-65536);
@@ -102,27 +104,28 @@ export class TaskManager {
         if (normalized.error) { job.error = String(normalized.error).slice(0, 4000); this.append(job, `Erro: ${job.error}\n`); }
         if (normalized.needsAction && job.status === 'running') {
           job.status = 'awaiting_approval'; job.error = 'O CLI requer uma ação ou permissão. Resolva no terminal interativo e reenvie a tarefa.';
-          this.changed(); this.kill(child);
+          this.changed(); this.stop(child);
         }
       };
       child.stdout.on('data', data => {
         pending += decode.write(data);
         const lines = pending.split('\n'); pending = lines.pop();
         for (const entry of lines) line(entry);
-        if (pending.length > 1024 * 1024) { job.error = 'Saída estruturada excedeu o limite por evento.'; pending = ''; this.kill(child); }
+        if (pending.length > 1024 * 1024) { job.error = 'Saída estruturada excedeu o limite por evento.'; pending = ''; this.stop(child); }
       });
       child.stderr.setEncoding('utf8'); child.stderr.on('data', data => this.append(job, data));
       child.on('error', error => { job.error = error.message; finish(null); });
       child.on('close', code => { pending += decode.end(); if (pending) line(pending); finish(code); });
-      execution.timer = setTimeout(() => { job.error = 'Tempo máximo de 30 minutos atingido.'; this.kill(child); }, this.timeoutMs);
+      execution.timer = setTimeout(() => { job.error = 'Tempo máximo de 30 minutos atingido.'; this.stop(child); }, this.timeoutMs);
       this.changed();
     } catch (error) { job.error = error.message; finish(null); }
   }
+  stop(child) { if (child?.live) this.live.stop(child); else this.kill(child); }
   cancel(id, projectId) {
     const job = this.jobs.find(j => j.id === id && (!projectId || j.projectId === projectId));
     if (!job) throw new Error('Tarefa não encontrada neste projeto.');
     if (job.status === 'queued') { job.status = 'cancelled'; job.finishedAt = Date.now(); this.changed(); }
-    else if (this.running.has(job.id)) { job.status = 'cancelling'; this.changed(); this.kill(this.running.get(job.id).child); }
+    else if (this.running.has(job.id)) { job.status = 'cancelling'; this.changed(); this.stop(this.running.get(job.id).child); }
     return this.get(id, projectId);
   }
   async wait(id, projectId, ms = 0) {
@@ -139,7 +142,7 @@ export class TaskManager {
     for (const job of this.jobs) if (activeTaskStates.includes(job.status)) {
       job.status = 'interrupted'; job.error = 'O serviço foi encerrado.'; job.finishedAt = Date.now();
     }
-    for (const execution of this.running.values()) { clearTimeout(execution.timer); if (execution.child) this.kill(execution.child); }
+    for (const execution of this.running.values()) { clearTimeout(execution.timer); if (execution.child) this.stop(execution.child); }
     this.save();
   }
 }

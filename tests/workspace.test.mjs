@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { Workspace, directory, textField, findCommand } from '../server/workspace.mjs';
+import { Workspace, directory, textField, findCommand, commandCanStart } from '../server/workspace.mjs';
 
 test('persists projects and agents, including paths with spaces and accents', t => {
   const temp = fs.mkdtempSync(path.join(process.cwd(), '.local-test-'));
@@ -37,4 +37,41 @@ test('prefers executable and cmd shims over PowerShell scripts on Windows', t =>
   assert.equal(findCommand('testcli', { PATH: temp }, 'win32'), null);
   fs.writeFileSync(path.join(temp, 'testcli.cmd'), '');
   assert.equal(findCommand('testcli', { PATH: temp }, 'win32'), path.join(temp, 'testcli.cmd'));
+});
+test('finds and validates Antigravity in LOCALAPPDATA when agy is absent from PATH', t => {
+  const temp = fs.mkdtempSync(path.join(process.cwd(), '.local-test-'));
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
+  const localAppData = path.join(temp, 'AppData', 'Local');
+  const binary = path.join(localAppData, 'agy', 'bin', 'agy.exe');
+  const pathBinary = path.join(temp, 'path-bin', 'agy.exe');
+  fs.mkdirSync(path.dirname(binary), { recursive: true });
+  fs.mkdirSync(path.dirname(pathBinary), { recursive: true });
+  fs.writeFileSync(binary, 'fixture');
+  fs.writeFileSync(pathBinary, 'fixture');
+  const env = { PATH: path.dirname(pathBinary), LOCALAPPDATA: localAppData };
+  assert.equal(findCommand('agy', env, 'win32'), pathBinary);
+  fs.rmSync(pathBinary);
+  assert.equal(findCommand('agy', env, 'win32'), binary);
+  let started;
+  assert.equal(commandCanStart('agy', env, 'win32', (file, args) => {
+    started = { file, args };
+    return { status: 0, signal: null };
+  }), true);
+  assert.deepEqual(started, { file: binary, args: ['--version'] });
+});
+test('finds and validates Hermes in LOCALAPPDATA when hermes is absent from PATH', t => {
+  const temp = fs.mkdtempSync(path.join(process.cwd(), '.local-test-'));
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
+  const localAppData = path.join(temp, 'AppData', 'Local');
+  const binary = path.join(localAppData, 'hermes', 'bin', 'hermes.cmd');
+  fs.mkdirSync(path.dirname(binary), { recursive: true });
+  fs.writeFileSync(binary, 'fixture');
+  const env = { PATH: path.join(temp, 'empty-path'), LOCALAPPDATA: localAppData };
+  assert.equal(findCommand('hermes', env, 'win32'), binary);
+  let started;
+  assert.equal(commandCanStart('hermes', env, 'win32', (file, args) => {
+    started = { file, args };
+    return { status: 0, signal: null };
+  }), true);
+  assert.deepEqual(started, { file: 'cmd.exe', args: ['/d', '/c', `${binary} --version`] });
 });

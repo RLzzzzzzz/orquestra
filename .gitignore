@@ -3,6 +3,7 @@ dist/
 .local/
 .local-*/
 .npm-cache/
+.freebuff/
 .env
 .env.*
 *.log

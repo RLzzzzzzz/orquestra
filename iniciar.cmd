@@ -5,6 +5,10 @@ if not exist node_modules (
   call npm.cmd install
   if errorlevel 1 goto :failed
 )
+if not exist .local\runtime\ai-memory\ai-memory.exe (
+  call npm.cmd run memory:install
+  if errorlevel 1 goto :failed
+)
 call npm.cmd run build
 if errorlevel 1 goto :failed
 echo.

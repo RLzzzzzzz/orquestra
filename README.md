@@ -15,6 +15,7 @@ Painel local para reunir vários agentes de IA, cada um em seu próprio terminal
 
    ```powershell
    npm.cmd install
+   npm.cmd run memory:install
    npm.cmd run build
    npm.cmd start
    ```
@@ -26,13 +27,29 @@ Mantenha a janela do serviço aberta. Para desenvolvimento, use `npm.cmd run dev
 
 ## Agentes e coordenação
 
-Cada agente tem um terminal próprio. Codex, OpenCode, Claude Code e Gemini CLI podem executar tarefas delegadas em processos separados. Na aba **Orquestração**, escolha Codex, OpenCode, Claude ou Freebuff como coordenador, abra sua sessão e descreva o objetivo no terminal. Por exemplo:
+Cada agente tem um terminal próprio. Inicie os executores Codex, OpenCode ou Claude Code antes de delegar. Na aba **Orquestração**, escolha Codex, OpenCode, Claude ou Freebuff como coordenador, abra sua sessão e descreva o objetivo no terminal. Por exemplo:
 
 > Delegue ao OpenCode a revisão do README, sem alterar arquivos. Aguarde e resuma o resultado.
 
-As tarefas e seus resultados aparecem na mesma aba. Também é possível delegar diretamente a um executor ou cancelar e repetir tarefas. O Freebuff precisa ser instalado e pode solicitar confirmação para conectar ao MCP na primeira vez.
+O coordenador usa os terminais abertos deste projeto: a instrução entra na conversa existente e a resposta aparece ao vivo no próprio painel do executor. Nenhum segundo processo de execução é criado para essa tarefa. Ao terminar, o executor chama `concluir_tarefa` pelo MCP para confirmar o resultado ao coordenador. Se precisar de uma aprovação, ela aparece no próprio terminal. Não há conclusão presumida por tempo ou por texto da tela.
 
-Antigravity (`agy`), Freebuff (`freebuff`) e Hermes (`hermes`) também podem ser cadastrados como terminais. Antigravity e Hermes ainda não possuem integração para receber tarefas automáticas. A disponibilidade indica que o comando está no PATH; login e acesso ao modelo continuam sendo gerenciados pelo CLI.
+As tarefas e seus resultados também aparecem em **Orquestração**. É possível delegar diretamente, cancelar e repetir tarefas. Cancelar encerra o terminal executor para interromper o trabalho antes de liberar a pasta; reabra-o para continuar. Ao atingir 30 minutos, a execução também é encerrada. A fila não controla instruções digitadas manualmente, então evite inserir uma nova tarefa enquanto ele executa uma delegação. O Freebuff pode solicitar confiança no MCP na primeira abertura; continua compatível como coordenador, mas não como executor gerenciado.
+
+Antigravity (`agy`), Freebuff (`freebuff`), Gemini e Hermes (`hermes`) também podem ser cadastrados como terminais manuais. Nesta versão eles não recebem delegações na sessão aberta. A disponibilidade do CLI indica que o comando está no PATH; a lista oferecida ao coordenador contém apenas executores com terminal gerenciado aberto. Login e acesso ao modelo continuam sendo gerenciados pelo CLI.
+
+## AI Memory
+
+A aba **Memória** usa o mecanismo original [akitaonrails/ai-memory](https://github.com/akitaonrails/ai-memory), versão 3.1.0, executado localmente pelo serviço do Orquestra. O instalador baixa a release oficial para a plataforma e confere seu SHA-256 antes de extrair. Windows nativo é experimental no projeto original. É necessário Git no PATH. Para usar outro binário, defina `ORQUESTRA_MEMORY_BIN` com seu caminho completo.
+
+- Notas em Markdown, busca textual, histórico Git e índice local do AI Memory.
+- Decisões, aprendizados e resultados compartilhados entre os agentes do mesmo projeto.
+- Registro automático da instrução e do resultado das tarefas delegadas; erros de gravação ficam em `memoryError` na tarefa.
+- Contexto recente inserido na próxima delegação, além de ferramentas MCP para consultar e salvar memórias.
+- Handoffs explícitos para passar contexto entre agentes ou sessões, aceitos uma única vez.
+
+Os agentes podem usar `buscar_memoria`, `salvar_memoria`, `ler_memoria`, `resumo_memoria`, `criar_handoff`, `listar_handoffs` e `aceitar_handoff`. A integração fixa o projeto no servidor; o modelo não escolhe o escopo de outros projetos. Notas também podem ser criadas, editadas e consultadas na interface. Cada tarefa recebe um contexto limitado, para não reenviar toda a memória.
+
+A wiki fica em `.local/memory/wiki`, com seu próprio Git, e o índice em `.local/memory/db`. O serviço não instala hooks globais, não importa conversas antigas dos fornecedores e não captura automaticamente toda conversa manual: a captura automática desta integração abrange tarefas delegadas. Consolidação com modelo, embeddings e rotinas de reescrita continuam nas configurações do AI Memory e não são ativadas por esta integração. O caminho padrão não precisa de chave de API nem faz chamadas adicionais a modelos para armazenar e buscar memória.
 
 Tarefas na mesma pasta, ou em pastas sobrepostas, entram em fila. Até três tarefas em pastas distintas podem rodar ao mesmo tempo. Os terminais interativos não são bloqueados pela fila. Evite editar os mesmos arquivos em mais de um agente simultaneamente.
 
@@ -56,7 +73,7 @@ npm.cmd test
 npm.cmd run build
 ```
 
-`node scripts/check-cli.mjs codex opencode` verifica se esses CLIs abrem e aceitam digitação sem enviar uma tarefa. Os scripts `check-orchestration.mjs` e `check-freebuff-terminal.mjs` iniciam chamadas reais aos modelos ou a confirmação de confiança; execute-os somente quando desejar essa interação.
+`node scripts/check-cli.mjs codex opencode` verifica se os CLIs abrem e aceitam digitação sem enviar tarefa. `node scripts/check-live-orchestration.mjs` verifica a delegação real Codex → OpenCode com dois terminais abertos, mesmo PID do executor, resposta visível e gravação no AI Memory; consome chamadas dos modelos. Os outros scripts de verificação também podem iniciar chamadas ou confirmações de confiança; execute-os somente quando desejar essa interação.
 
 ## Dados e privacidade
 

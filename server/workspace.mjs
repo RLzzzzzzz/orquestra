@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { saveJson } from './persistence.mjs';
 
@@ -39,7 +40,34 @@ export function findCommand(command, env = process.env, platform = process.platf
       if (fs.statSync(candidate, { throwIfNoEntry: false })?.isFile()) return candidate;
     }
   }
+  // Antigravity's Windows installer currently keeps its CLI outside PATH.
+  // Keep this provider-specific fallback after PATH so a user-selected agy wins.
+  const localBinaries = {
+    agy: ['agy', 'bin', 'agy.exe'],
+    // Hermes installs a command wrapper which sets up its bundled Python runtime.
+    hermes: ['hermes', 'bin', 'hermes.cmd'],
+  };
+  const localBinary = platform === 'win32' && env.LOCALAPPDATA && localBinaries[command.toLowerCase()];
+  if (localBinary) {
+    const candidate = path.join(env.LOCALAPPDATA, ...localBinary);
+    if (fs.statSync(candidate, { throwIfNoEntry: false })?.isFile()) return candidate;
+  }
   return null;
+}
+
+export function commandCanStart(command, env = process.env, platform = process.platform, starter = spawnSync) {
+  const file = findCommand(command, env, platform);
+  if (!file) return false;
+  const isWindowsScript = platform === 'win32' && /\.(cmd|bat)$/i.test(file);
+  const executable = isWindowsScript ? (env.ComSpec || 'cmd.exe') : file;
+  const args = isWindowsScript ? ['/d', '/c', `${file} --version`] : ['--version'];
+  const result = starter(executable, args, {
+    env,
+    windowsHide: true,
+    stdio: 'ignore',
+    timeout: 15000,
+  });
+  return !result.error && !result.signal && result.status === 0;
 }
 
 export class Workspace {

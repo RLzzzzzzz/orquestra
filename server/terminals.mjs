@@ -10,7 +10,7 @@ export class Terminals {
   }
   info(id) {
     const session = this.sessions.get(id);
-    return session ? { status: session.status, mode: session.mode, pid: session.pid, exitCode: session.exitCode, agentExitCode: session.agentExitCode, startedAt: session.startedAt } : { status: 'idle' };
+    return session ? { status: session.status, mode: session.mode, managed: session.managed === true, pid: session.pid, exitCode: session.exitCode, agentExitCode: session.agentExitCode, startedAt: session.startedAt } : { status: 'idle' };
   }
   start(agent, options = {}) {
     const previous = this.sessions.get(agent.id);
@@ -42,7 +42,7 @@ export class Terminals {
       name: 'xterm-256color', cwd: options.launch?.cwd || agent.cwd, cols: 100, rows: 28,
       env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', ...options.env, ...(options.launch && { ORQUESTRA_LAUNCH: JSON.stringify(options.launch) }) },
     });
-    const session = { proc, status: 'running', mode: options.mode || (agent.provider === 'shell' ? 'shell' : 'agent'), pid: proc.pid, history: '', startedAt: Date.now() };
+    const session = { proc, status: 'running', managed: options.managed === true, mode: options.mode || (agent.provider === 'shell' ? 'shell' : 'agent'), pid: proc.pid, history: '', startedAt: Date.now() };
     this.sessions.set(agent.id, session);
     this.emit({ type: 'reset', id: agent.id });
     this.attach(agent, session);
@@ -98,7 +98,7 @@ export class Terminals {
       const data = text.replace(/\r?\n/g, '\r').replace(/\x1b/g, '');
       session.proc.write(bracketed ? `\x1b[200~${data}\x1b[201~` : data);
       if (submit) {
-        await new Promise(resolve => setTimeout(resolve, 150));
+        await new Promise(resolve => setTimeout(resolve, bracketed ? 750 : 150));
         if (this.sessions.get(id) !== session || session.status !== 'running') throw new Error('O agente encerrou durante o envio. O shell não recebeu a tarefa.');
         session.proc.write('\r');
       }

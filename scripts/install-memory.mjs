@@ -1,0 +1,22 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { promisify } from 'node:util';
+import { execFile } from 'node:child_process';
+const version = '3.1.0';
+const platform = { win32: 'windows', linux: 'linux', darwin: 'macos' }[process.platform];
+const arch = { x64: 'x86_64', arm64: 'aarch64' }[process.arch];
+if (!platform || !arch || (platform === 'windows' && arch !== 'x86_64')) throw new Error('Plataforma não suportada pelo instalador. Configure ORQUESTRA_MEMORY_BIN.');
+const directory = path.resolve('.local/runtime/ai-memory');
+await fs.mkdir(directory, { recursive: true });
+const name = `ai-memory-${platform}-${arch}.${platform === 'windows' ? 'zip' : 'tar.gz'}`;
+const base = `https://github.com/akitaonrails/ai-memory/releases/download/v${version}/`;
+async function download(url) { const res = await fetch(url); if (!res.ok) throw new Error(`Download recusado (${res.status})`); return Buffer.from(await res.arrayBuffer()); }
+const archive = await download(base + name);
+const expected = (await download(base + name + '.sha256')).toString('utf8').trim().split(/\s+/)[0].toLowerCase();
+if (createHash('sha256').update(archive).digest('hex') !== expected) throw new Error('Checksum do AI Memory inválido. Nada foi executado.');
+const file = path.join(directory, name); await fs.writeFile(file, archive);
+const execute = promisify(execFile);
+if (platform === 'windows') await execute('powershell.exe', ['-NoProfile', '-Command', 'Expand-Archive -LiteralPath $env:ORQUESTRA_ARCHIVE -DestinationPath $env:ORQUESTRA_DESTINATION -Force'], { windowsHide: true, env: { ...process.env, ORQUESTRA_ARCHIVE: file, ORQUESTRA_DESTINATION: directory } });
+else await execute('tar', ['-xzf', file, '-C', directory]);
+console.log(`AI Memory ${version} instalado e SHA-256 verificado em ${directory}. Reinicie o Orquestra.`);

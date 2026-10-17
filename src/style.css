@@ -40,3 +40,12 @@ dialog{background:#1a1c20;color:#d8dce2;width:530px;max-width:calc(100vw - 30px)
 .coordinator-choice label { display: flex; flex-direction: column; gap: 7px; }
 .coordinator-choice select { background: #191b20; color: #e5e7eb; padding: 9px; border: 1px solid #363a42; border-radius: 6px; }
 .coordinator-choice small { color: #949ba9; line-height: 1.5; }
+.memory-controls { display: flex; gap: 12px; margin: 22px 0; flex-wrap: wrap; }
+.memory-controls form { display: flex; gap: 8px; flex: 1; }
+.memory-controls input { min-width: 150px; width: 100%; background: #15171b; color: #e1e4e9; border: 1px solid #363a42; border-radius: 6px; padding: 10px; }
+.memory-body { white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.7 Consolas, monospace; padding: 20px; }
+.memory-editor label { display: flex; flex-direction: column; gap: 10px; }
+.memory-editor textarea { width: 100%; min-height: 330px; background: #15171b; color: #e1e4e9; border: 1px solid #363a42; padding: 14px; font: 13px/1.6 Consolas, monospace; resize: vertical; }
+.memory-handoff { border: 1px solid #363a42; padding: 18px; margin: 12px 0; border-radius: 8px; }
+.task-live-notice { color: #b6ed85; }
+.memory-page-actions { display: flex; align-items: center; gap: 8px; }

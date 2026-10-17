@@ -4,11 +4,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
-import { Workspace, providers, findCommand } from './workspace.mjs';
+import { Workspace, providers, findCommand, commandCanStart } from './workspace.mjs';
 import { Terminals } from './terminals.mjs';
 import { TaskManager } from './task-manager.mjs';
 import { Orchestration, coordinatorProviders } from './orchestration.mjs';
 import { automatedProviders } from './cli-adapters.mjs';
+import { Memory } from './memory.mjs';
+import { LiveTasks } from './live-tasks.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const port = Number(process.env.PORT || 4317);
@@ -27,10 +29,15 @@ const broadcast = data => {
   }
 };
 const terminals = new Terminals(event => broadcast(event.type === 'changed' ? snapshot() : event));
-const tasks = new TaskManager(workspace, () => broadcast(snapshot()));
-const orchestration = new Orchestration(workspace, terminals, tasks, port);
+const memory = new Memory(path.dirname(workspace.file), () => broadcast(snapshot()));
+const live = new LiveTasks(terminals, memory);
+const tasks = new TaskManager(workspace, () => broadcast(snapshot()), { live, memory });
+const orchestration = new Orchestration(workspace, terminals, tasks, port, memory, live);
 function snapshot() {
-  return { type: 'state', projects: workspace.state.projects, agents: workspace.state.agents.map(a => ({ ...a, ...terminals.info(a.id) })), tasks: tasks.summaries() };
+  return { type: 'state', projects: workspace.state.projects, agents: workspace.state.agents.map(a => {
+    const task = tasks.jobs.find(t => t.agentId === a.id && ['running', 'cancelling'].includes(t.status));
+    return { ...a, ...terminals.info(a.id), taskId: task?.id, taskTitle: task?.title };
+  }), tasks: tasks.summaries(), memory: memory.info() };
 }
 function authenticated(req) {
   return (req.headers.cookie || '').split(';').some(c => c.trim() === `${cookieName}=${token}`);
@@ -71,7 +78,7 @@ const server = http.createServer(async (req, res) => {
     try {
       if (req.method === 'GET' && pathname === '/api/state') return json(res, 200, snapshot());
       if (req.method === 'GET' && pathname === '/api/providers') {
-        return json(res, 200, providers.map(p => ({ ...p, coordinator: coordinatorProviders.includes(p.id), automated: automatedProviders.includes(p.id), available: ['shell', 'custom'].includes(p.id) || !!findCommand(p.command) })));
+        return json(res, 200, providers.map(p => ({ ...p, coordinator: coordinatorProviders.includes(p.id), automated: automatedProviders.includes(p.id), available: ['shell', 'custom'].includes(p.id) || (['antigravity', 'hermes'].includes(p.id) ? commandCanStart(p.command) : !!findCommand(p.command)) })));
       }
       if (req.method === 'POST' && pathname === '/api/projects') {
         const project = workspace.addProject(await body(req));
@@ -83,6 +90,14 @@ const server = http.createServer(async (req, res) => {
       }
       const coordinatorMatch = pathname.match(/^\/api\/projects\/([a-f0-9-]+)\/coordinator$/);
       if (req.method === 'POST' && coordinatorMatch) return json(res, 200, orchestration.start(coordinatorMatch[1], (await body(req)).agentId));
+      const memoryMatch = pathname.match(/^\/api\/projects\/([a-f0-9-]+)\/memory\/(status|query|write|delete|read|recent|briefing|handoff_list|handoff_begin|handoff_accept)$/);
+      if (memoryMatch && ['GET', 'POST'].includes(req.method)) {
+        if (!workspace.state.projects.some(p => p.id === memoryMatch[1])) throw new Error('Projeto não encontrado.');
+        const operation = memoryMatch[2];
+        if (req.method === 'GET' && !['status', 'recent', 'briefing', 'handoff_list'].includes(operation)) return json(res, 405, { error: 'Use POST.' });
+        const data = req.method === 'POST' ? await body(req) : {};
+        return json(res, 200, await memory.call(memoryMatch[1], operation, data));
+      }
       if (pathname === '/api/tasks' && req.method === 'POST') {
         const input = await body(req); return json(res, 201, tasks.create(input.projectId, input));
       }
@@ -100,7 +115,7 @@ const server = http.createServer(async (req, res) => {
           broadcast(snapshot()); return json(res, 200, { ok: true });
         }
         if (req.method === 'POST') {
-          if (match[2] === 'start') { if (agent.coordinator) orchestration.start(agent.projectId); else terminals.start(agent); }
+          if (match[2] === 'start') { if (agent.coordinator) orchestration.start(agent.projectId); else orchestration.startWorker(agent); }
           else if (match[2] === 'stop') terminals.stop(agent.id);
           else if (match[2] === 'input') terminals.write(agent.id, (await body(req)).data);
           else if (match[2] === 'prompt') {
@@ -165,6 +180,7 @@ async function shutdown() {
   closing = true;
   tasks.dispose();
   terminals.dispose();
+  await memory.dispose();
   for (const ws of sockets.clients) ws.terminate();
   sockets.close();
   if (vite) await vite.close();
