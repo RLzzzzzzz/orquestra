@@ -1,0 +1,8 @@
+{
+  "name": "orquestra",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Painel local de agentes de IA",
+  "author": "Orquestra",
+  "main": "main.cjs"
+}

@@ -1,0 +1,32 @@
+appId: br.orquestra.desktop
+productName: Orquestra
+directories:
+  app: electron
+  output: release
+files:
+  - main.cjs
+  - package.json
+  - '!node_modules/**/*'
+extraResources:
+  - from: .desktop/backend
+    to: backend
+  # electron-builder excludes a root node_modules from directory copies.
+  # Copy it explicitly so the separate Node process can resolve its dependencies.
+  - from: .desktop/backend/node_modules
+    to: backend/node_modules
+afterPack: scripts/verify-desktop.cjs
+# The backend runs in its own bundled Node, never in Electron's Node ABI.
+npmRebuild: false
+asar: true
+win:
+  target:
+    - target: portable
+      arch: [x64]
+portable:
+  artifactName: '${productName}-${version}-${arch}-portable.${ext}'
+nsis:
+  artifactName: '${productName}-${version}-${arch}-nsis.${ext}'
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false

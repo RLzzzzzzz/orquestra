@@ -11,6 +11,7 @@ import { Orchestration, coordinatorProviders } from './orchestration.mjs';
 import { automatedProviders } from './cli-adapters.mjs';
 import { Memory } from './memory.mjs';
 import { LiveTasks } from './live-tasks.mjs';
+import { pickDirectory } from './folder-picker.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const port = Number(process.env.PORT || 4317);
@@ -19,7 +20,7 @@ const token = randomBytes(32).toString('hex');
 const cookieName = `orquestra_${port}`;
 const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 const origins = new Set([...hosts].map(h => `http://${h}`));
-const workspace = new Workspace(process.env.ORQUESTRA_DATA_DIR || path.join(root, '.local'), root);
+const workspace = new Workspace(process.env.ORQUESTRA_DATA_DIR || path.join(root, '.local'), process.env.ORQUESTRA_DEFAULT_PROJECT_DIR || root);
 const sockets = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 const send = (ws, data) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data)); };
 const broadcast = data => {
@@ -80,6 +81,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'GET' && pathname === '/api/providers') {
         return json(res, 200, providers.map(p => ({ ...p, coordinator: coordinatorProviders.includes(p.id), automated: automatedProviders.includes(p.id), available: ['shell', 'custom'].includes(p.id) || (['antigravity', 'hermes'].includes(p.id) ? commandCanStart(p.command) : !!findCommand(p.command)) })));
       }
+      if (req.method === 'POST' && pathname === '/api/select-directory') return json(res, 200, await pickDirectory());
       if (req.method === 'POST' && pathname === '/api/projects') {
         const project = workspace.addProject(await body(req));
         broadcast(snapshot()); return json(res, 201, project);
@@ -101,6 +103,10 @@ const server = http.createServer(async (req, res) => {
       if (pathname === '/api/tasks' && req.method === 'POST') {
         const input = await body(req); return json(res, 201, tasks.create(input.projectId, input));
       }
+      const boardMatch = pathname.match(/^\/api\/projects\/([a-f0-9-]+)\/board-tasks(?:\/([a-f0-9-]+))?$/);
+      if (boardMatch && req.method === 'GET' && !boardMatch[2]) return json(res, 200, { tasks: tasks.summaries(boardMatch[1]) });
+      if (boardMatch && req.method === 'POST' && !boardMatch[2]) return json(res, 201, tasks.createBoard(boardMatch[1], await body(req)));
+      if (boardMatch && req.method === 'PATCH' && boardMatch[2]) return json(res, 200, tasks.updateBoard(boardMatch[2], boardMatch[1], await body(req)));
       const taskMatch = pathname.match(/^\/api\/tasks\/([a-f0-9-]+)(?:\/(cancel))?$/);
       if (taskMatch && req.method === 'GET' && !taskMatch[2]) return json(res, 200, tasks.get(taskMatch[1]));
       if (taskMatch && req.method === 'POST' && taskMatch[2] === 'cancel') return json(res, 200, tasks.cancel(taskMatch[1]));
@@ -173,7 +179,11 @@ server.on('error', error => {
   console.error(error.code === 'EADDRINUSE' ? `A porta ${port} está ocupada. Feche a outra instância ou configure PORT.` : error.message);
   process.exit(1);
 });
-server.listen(port, '127.0.0.1', () => console.log(`Orquestra disponível em http://127.0.0.1:${port}`));
+server.listen(port, '127.0.0.1', () => {
+  const url = `http://127.0.0.1:${port}`;
+  console.log(`Orquestra disponível em ${url}`);
+  if (process.connected) process.send({ type: 'ready', url });
+});
 let closing = false;
 async function shutdown() {
   if (closing) return;
@@ -189,3 +199,8 @@ async function shutdown() {
 }
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+// Electron owns this process through IPC; Windows signals cannot request cleanup.
+if (process.send) {
+  process.on('message', message => { if (message?.type === 'shutdown') shutdown(); });
+  process.on('disconnect', shutdown);
+}

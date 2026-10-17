@@ -1,5 +1,7 @@
 node_modules/
 dist/
+release/
+.desktop/
 .local/
 .local-*/
 .npm-cache/

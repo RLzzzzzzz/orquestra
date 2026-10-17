@@ -74,6 +74,15 @@ test('restart interrupts persisted jobs without resubmitting them', async t => {
   f.children[0].end();
 });
 
+test('project board tasks persist separately from delegated execution and support paused status', t => {
+  const f = fixture(t);
+  const task = f.manager.createBoard(f.projectId, { title: 'Definir interface', description: 'Aguardar revisão', status: 'in_progress' }, 'user');
+  assert.equal(task.kind, 'board');
+  assert.equal(f.manager.updateBoard(task.id, f.projectId, { status: 'paused' }, 'executor').status, 'paused');
+  assert.equal(f.manager.summaries(f.projectId).find(item => item.id === task.id).updatedBy, 'executor');
+  assert.throws(() => f.manager.updateBoard(task.id, 'foreign', { status: 'done' }), /não encontrada/);
+});
+
 test('provider events distinguish completion, errors and permission requests', () => {
   assert.equal(parseWorkerEvent('opencode', { type: 'step_finish', part: { reason: 'tool-calls' } }).completed, false);
   assert.equal(parseWorkerEvent('opencode', { type: 'step_finish', part: { reason: 'stop' } }).completed, true);
@@ -103,10 +112,13 @@ test('real MCP stdio handshake, delegation, result and project boundaries', { ti
   assert.equal((await fetch(url, { method: 'POST' })).status, 401);
   await client.connect(transport);
   const names = (await client.listTools()).tools.map(tool => tool.name);
-  for (const name of ['listar_agentes', 'concluir_tarefa', 'buscar_memoria', 'salvar_memoria', 'criar_handoff']) assert.ok(names.includes(name));
+  for (const name of ['listar_agentes', 'concluir_tarefa', 'buscar_memoria', 'salvar_memoria', 'criar_handoff', 'criar_tarefa', 'atualizar_tarefa']) assert.ok(names.includes(name));
   const invoke = async (name, args = {}) => client.callTool({ name, arguments: args });
   const workers = JSON.parse((await invoke('listar_agentes')).content[0].text);
   assert.equal(workers.agents[0].id, f.agent.id);
+  const boardTask = JSON.parse((await invoke('criar_tarefa', { title: 'Planejar', status: 'paused' })).content[0].text);
+  assert.equal(boardTask.status, 'paused');
+  assert.equal(JSON.parse((await invoke('atualizar_tarefa', { task_id: boardTask.id, status: 'done' })).content[0].text).status, 'done');
   const delegated = await invoke('enviar_tarefa', { agent_id: f.agent.id, instruction: 'Uma tarefa', request_id: 'mcp-one' });
   assert.ok(!delegated.isError, JSON.stringify(delegated));
   const id = JSON.parse(delegated.content[0].text).task_id;

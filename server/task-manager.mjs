@@ -7,6 +7,7 @@ import { directory, textField } from './workspace.mjs';
 import { saveJson } from './persistence.mjs';
 
 export const activeTaskStates = ['queued', 'running', 'cancelling'];
+export const boardTaskStates = ['todo', 'in_progress', 'paused', 'blocked', 'done', 'cancelled'];
 function canonical(cwd) { const real = fs.realpathSync(cwd); return process.platform === 'win32' ? real.toLowerCase() : real; }
 export function overlap(a, b) { return a === b || a.startsWith(b + path.sep) || b.startsWith(a + path.sep); }
 export class TaskManager {
@@ -52,11 +53,32 @@ export class TaskManager {
     const cwd = directory(agent.cwd);
     const job = {
       id: randomUUID(), requestId, projectId, agentId: agent.id, agentName: agent.name, provider: agent.provider,
-      role: agent.role, cwd, cwdKey: canonical(cwd), title: (typeof input.title === 'string' ? input.title.trim() : prompt.split('\n')[0]).slice(0, 140) || 'Tarefa delegada',
+      kind: 'delegated', source: input.source || 'agent', role: agent.role, cwd, cwdKey: canonical(cwd), title: (typeof input.title === 'string' ? input.title.trim() : prompt.split('\n')[0]).slice(0, 140) || 'Tarefa delegada',
       prompt, status: 'queued', createdAt: Date.now(), output: '', result: '', error: '',
     };
     this.jobs.push(job); this.changed(); queueMicrotask(() => this.pump());
     return this.get(job.id);
+  }
+  createBoard(projectId, input, source = 'user') {
+    if (this.closed) throw new Error('O serviço está encerrando.');
+    if (!this.workspace.state.projects.some(p => p.id === projectId)) throw new Error('Projeto não encontrado.');
+    const title = textField(input.title, 'Título', 140);
+    const status = boardTaskStates.includes(input.status) ? input.status : 'todo';
+    const description = typeof input.description === 'string' ? input.description.trim().slice(0, 16000) : '';
+    const task = { id: randomUUID(), projectId, kind: 'board', source, title, description, status, createdAt: Date.now(), updatedAt: Date.now() };
+    this.jobs.push(task); this.changed(); return { ...task };
+  }
+  updateBoard(id, projectId, input, source = 'user') {
+    const task = this.jobs.find(j => j.id === id && j.projectId === projectId && j.kind === 'board');
+    if (!task) throw new Error('Tarefa manual não encontrada neste projeto.');
+    if (input.title !== undefined) task.title = textField(input.title, 'Título', 140);
+    if (input.description !== undefined) task.description = typeof input.description === 'string' ? input.description.trim().slice(0, 16000) : task.description;
+    if (input.status !== undefined) {
+      if (!boardTaskStates.includes(input.status)) throw new Error('Status de tarefa inválido.');
+      task.status = input.status;
+      if (['done', 'cancelled'].includes(task.status)) task.finishedAt = Date.now();
+    }
+    task.updatedAt = Date.now(); task.updatedBy = source; this.changed(); return { ...task };
   }
   pump() {
     if (this.closed) return;
