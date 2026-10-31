@@ -272,7 +272,28 @@ npm.cmd run desktop:portable
 npm.cmd run desktop:installer
 ```
 
-Use somente o formato necessário. Saídas em `release/`: pasta `win-unpacked`, portátil `Orquestra-0.1.0-x64-portable.exe` e instalador `Orquestra-0.1.0-x64-nsis.exe`. A versão acompanha `package.json`. O pacote inclui runtime Node.js e dependências do backend; CLIs, suas contas e Git continuam sendo instalados pelo usuário. O AI Memory é incluído se estiver no runtime local padrão durante o empacotamento. Dados de projetos, credenciais e histórico não entram no pacote. Os executáveis não têm assinatura digital configurada.
+Use somente o formato necessário. Saídas em `release/`: pasta `win-unpacked`, portátil `Orquestra-0.1.1-x64-portable.exe` e instalador `Orquestra-0.1.1-x64-nsis.exe`. A versão acompanha `package.json`. O pacote inclui runtime Node.js e dependências do backend; CLIs, suas contas e Git continuam sendo instalados pelo usuário. O AI Memory é incluído se estiver no runtime local padrão durante o empacotamento. Dados de projetos, credenciais e histórico não entram no pacote. Os executáveis não têm assinatura digital configurada.
+
+### Atualize o executável depois de alterar o código
+
+1. Feche o Orquestra, incluindo janelas do desktop e servidores abertos pelo terminal. As sessões dos CLIs serão encerradas; finalize ou guarde o contexto antes.
+2. Na pasta do repositório, execute `npm.cmd ci` se o `package-lock.json` ou as dependências tiverem mudado.
+3. Gere novamente o formato que você utiliza:
+
+   ```powershell
+   # Portátil: já compila a interface e prepara o backend atualizado.
+   npm.cmd run desktop:portable
+
+   # Alternativa para a versão instalada:
+   npm.cmd run desktop:installer
+   ```
+
+4. No modo portátil, copie o novo `.exe` de `release/` para o local onde você costuma abri-lo e atualize o atalho para esse arquivo. No modo instalado, execute o novo instalador e use o mesmo usuário/pasta da instalação anterior.
+5. Reabra o aplicativo e confira a versão no rodapé da barra de projetos. Esta correção é a **0.1.1**. Reabra os terminais para que recebam o backend novo; uma sessão antiga não troca de transporte enquanto está em execução.
+
+O build e o executável não substituem `%APPDATA%\Orquestra\data` nem a pasta definida em `ORQUESTRA_DATA_DIR`. Preserve essa pasta para manter seus projetos, histórico e memória. Compilar apenas com `npm.cmd run build` atualiza a interface do código-fonte; isso não modifica um `.exe` gerado anteriormente.
+
+Para usar a versão atualizada pelo código-fonte, execute `npm.cmd run build` e então `npm.cmd start` ou `npm.cmd run desktop`. No navegador, recarregue a página após reiniciar o servidor.
 
 ## 10. Dados, atualização e desenvolvimento
 
@@ -306,6 +327,10 @@ npm.cmd run check:layout
 Os testes automatizados usam fixtures, sem autenticar contas ou chamar modelos. Scripts `check-live-*` e algumas verificações de provedores podem iniciar sessões reais: leia o script antes de executá-lo.
 
 `check:layout` exige o build e abre um renderer Electron oculto com dados temporários e terminais de teste. Ele verifica 45 cenários de tamanho, layout, foco e fonte, sem alterar seus projetos ou chamar modelos. A captura de referência fica em `coverage/terminal-layout.png`.
+
+Para verificar especificamente o redraw da interface nativa do OpenCode instalado, execute `npm.cmd run check:opencode-resize` após o build. Essa verificação abre uma sessão isolada, muda a janela, confere prompt/rodapé/centralização e exige que o mesmo processo continue ativo. Não envia instruções ao modelo. Resultados e capturas ficam em `coverage/opencode-resize/`.
+
+Depois de empacotar, `npm.cmd run check:opencode-resize -- --packaged` repete a verificação usando o backend, a interface e o `node.exe` de `release/win-unpacked/resources/backend`.
 
 Estrutura: `src/` contém a interface; `server/`, os terminais, MCP, fila e memória; `scripts/`, preparação e verificações; `tests/`, regressões; `electron/`, o desktop.
 
