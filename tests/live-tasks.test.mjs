@@ -68,6 +68,28 @@ test('common credentials are redacted before memory persistence', () => {
   assert.ok(!headers.includes('private.credential.value')); assert.ok(!headers.includes('dXNlcjpwYXNz'));
 });
 
+test('cancelling during memory recall never delivers the pending instruction', async () => {
+  const events = new EventEmitter();
+  const session = { id: 'session', status: 'running', mode: 'agent', managed: true, mcpReady: true,
+    proc: {
+      onData(fn) { events.on('data', fn); return { dispose: () => events.off('data', fn) }; },
+      onExit(fn) { events.on('exit', fn); return { dispose: () => events.off('exit', fn) }; },
+    } };
+  let release, deliveries = 0;
+  const terminals = { sessions: new Map([['worker', session]]), async prompt() { deliveries++; }, stop() {} };
+  const live = new LiveTasks(terminals, { context: () => new Promise(resolve => { release = resolve; }) });
+  const child = live.start({ id: 'task', agentId: 'worker', projectId: 'project', prompt: 'Work' });
+  child.stdout.resume(); child.stderr.resume();
+  await new Promise(resolve => setImmediate(resolve));
+  live.stop(child);
+  release({ text: 'previous context', warnings: [] });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(deliveries, 0);
+  assert.equal(live.active.size, 1);
+  events.emit('exit');
+  assert.equal(live.active.size, 0);
+});
+
 test('delegation refuses an existing terminal opened in a different directory', () => {
   const terminals = { sessions: new Map([['worker', { status: 'running', mode: 'agent', managed: true, mcpReady: true, cwd: 'old-directory' }]]) };
   const live = new LiveTasks(terminals);
