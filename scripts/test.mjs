@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 const suite = process.argv[2] || 'all';
 const groups = {
   unit: ['workspace', 'folder-picker', 'coordinator', 'live-tasks', 'memory', 'native-capture', 'desktop-notifications', 'cli-adapters', 'cli-process', 'ui-events', 'ui-panels', 'setup', 'terminal-sizing'],
-  integration: ['server', 'worktrees'],
+  integration: ['server', 'worktrees', 'terminal-backend'],
   regression: ['orchestration', 'reviews', 'core'],
 };
 if (suite !== 'all' && !groups[suite]) throw new Error(`Suíte desconhecida: ${suite}`);

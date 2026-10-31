@@ -2,8 +2,23 @@ import * as pty from 'node-pty';
 import { findCommand, directory } from './workspace.mjs';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import os from 'node:os';
 
 const MAX_HISTORY = 256 * 1024;
+
+// OpenCode's native TUI needs ConPTY resize events. The bundled ConPTY DLL
+// also avoids node-pty's system-ConPTY console-list helper in detached hosts.
+export function terminalPtyOptions(provider, platform = process.platform) {
+  if (platform !== 'win32') return {};
+  return provider === 'opencode' ? { useConpty: true, useConptyDll: true } : { useConpty: false };
+}
+
+export function terminalPtyMetadata(options, platform = process.platform, release = os.release()) {
+  if (platform !== 'win32') return undefined;
+  const buildNumber = Number(release.split('.')[2]);
+  return { backend: options.useConpty === false ? 'winpty' : 'conpty', ...(Number.isInteger(buildNumber) && buildNumber > 0 ? { buildNumber } : {}) };
+}
+
 export class Terminals {
   constructor(emit, memory = null) {
     this.sessions = new Map();
@@ -12,7 +27,7 @@ export class Terminals {
   }
   info(id) {
     const session = this.sessions.get(id);
-    return session ? { sessionId: session.id, mcpReady: session.mcpReady === true, status: session.status, mode: session.mode, managed: session.managed === true, pid: session.pid, exitCode: session.exitCode, agentExitCode: session.agentExitCode, startedAt: session.startedAt } : { status: 'idle' };
+    return session ? { sessionId: session.id, windowsPty: session.windowsPty, mcpReady: session.mcpReady === true, status: session.status, mode: session.mode, managed: session.managed === true, pid: session.pid, exitCode: session.exitCode, agentExitCode: session.agentExitCode, startedAt: session.startedAt } : { status: 'idle' };
   }
   start(agent, options = {}) {
     const previous = this.sessions.get(agent.id);
@@ -41,11 +56,13 @@ export class Terminals {
       // line verbatim so quoted paths with spaces/accented characters survive.
       : (windows ? `/d /s /c "${command}"` : ['-lc', command]);
     const cols = previous?.cols || 100, rows = previous?.rows || 28;
+    const platformOptions = terminalPtyOptions(agent.provider);
     const proc = pty.spawn(options.launch ? process.execPath : executable, options.launch ? [fileURLToPath(new URL('./cli-launcher.mjs', import.meta.url))] : args, {
       name: 'xterm-256color', cwd: options.launch?.cwd || agent.cwd, cols, rows,
       env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', ...options.env, ...(options.launch && { ORQUESTRA_LAUNCH: JSON.stringify(options.launch) }) },
+      ...platformOptions,
     });
-    const session = { id: randomUUID(), proc, cols, rows, cwd: options.launch?.cwd || agent.cwd, status: 'running', managed: options.managed === true, mode: options.mode || (agent.provider === 'shell' ? 'shell' : 'agent'), pid: proc.pid, history: '', startedAt: Date.now() };
+    const session = { id: randomUUID(), proc, cols, rows, windowsPty: terminalPtyMetadata(platformOptions), cwd: options.launch?.cwd || agent.cwd, status: 'running', managed: options.managed === true, mode: options.mode || (agent.provider === 'shell' ? 'shell' : 'agent'), pid: proc.pid, history: '', startedAt: Date.now() };
     this.sessions.set(agent.id, session);
     this.emit({ type: 'reset', id: agent.id, sessionId: session.id });
     this.attach(agent, session);
@@ -70,11 +87,13 @@ export class Terminals {
     const notice = `\r\n\x1b[33m[Orquestra] O comando do agente encerrou (saída ${exitCode}).\r\nShell disponível: você pode digitar comandos abaixo. Use "Reiniciar agente" para tentar novamente.\x1b[0m\r\n`;
     try {
       const windows = process.platform === 'win32';
+      const platformOptions = terminalPtyOptions('shell');
       const proc = pty.spawn(windows ? (process.env.ComSpec || 'cmd.exe') : (process.env.SHELL || '/bin/bash'), windows ? ['/d', '/q'] : ['-i'], {
         name: 'xterm-256color', cwd: agent.cwd, cols: previous.cols || 100, rows: previous.rows || 28,
         env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
+        ...platformOptions,
       });
-      const session = { id: randomUUID(), proc, cols: previous.cols || 100, rows: previous.rows || 28, cwd: agent.cwd, status: 'running', mode: 'fallback', pid: proc.pid, history: (previous.history + notice).slice(-MAX_HISTORY), agentExitCode: exitCode, startedAt: Date.now() };
+      const session = { id: randomUUID(), proc, cols: previous.cols || 100, rows: previous.rows || 28, windowsPty: terminalPtyMetadata(platformOptions), cwd: agent.cwd, status: 'running', mode: 'fallback', pid: proc.pid, history: (previous.history + notice).slice(-MAX_HISTORY), agentExitCode: exitCode, startedAt: Date.now() };
       this.sessions.set(agent.id, session);
       this.attach(agent, session);
       // Publish the new identity before output, so clients do not discard it as stale.
