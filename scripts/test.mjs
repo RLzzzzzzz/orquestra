@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 
 const suite = process.argv[2] || 'all';
 const groups = {
-  unit: ['workspace', 'folder-picker', 'coordinator', 'live-tasks', 'memory', 'native-capture', 'desktop-notifications', 'cli-adapters', 'cli-process', 'ui-events', 'ui-panels'],
+  unit: ['workspace', 'folder-picker', 'coordinator', 'live-tasks', 'memory', 'native-capture', 'desktop-notifications', 'cli-adapters', 'cli-process', 'ui-events', 'ui-panels', 'setup', 'terminal-sizing'],
   integration: ['server', 'worktrees'],
   regression: ['orchestration', 'reviews', 'core'],
 };

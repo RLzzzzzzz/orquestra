@@ -11,6 +11,7 @@ import MemoryPanel from './MemoryPanel.jsx';
 import TaskBoard from './TaskBoard.jsx';
 import { Bell, Copy, Eye, AlertCircle } from 'lucide-react';
 import { snapshotEvents, sessionDraft, filterActivity } from './ui-events.mjs';
+import { createTerminalSizer } from './terminal-sizing.mjs';
 
 const providerMeta = {
   codex: { name: 'Codex', color: '#b6ed85', mark: '✳' },
@@ -35,6 +36,7 @@ const colorThemes = {
 const buffers = new Map();
 const liveTerms = new Map();
 const terminalActivity = new Map();
+const terminalSizers = new Map();
 const terminalSessions = new Map();
 const readLocal = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
 const statusLabel = a => a.status === 'running' ? (a.mode === 'fallback' ? 'Shell disponível · agente saiu' : 'Em execução') : a.status === 'exited' ? 'Encerrado' : 'Pronto para iniciar';
@@ -91,7 +93,7 @@ function TerminalPane({ agent, send, onAction, focused, onFocus, fontSize, termi
   };
   const container = useRef(null);
   const termRef = useRef(null);
-  const fitRef = useRef(null);
+  const sizingRef = useRef(null);
   const meta = providerMeta[agent.provider];
   useEffect(() => {
     localStorage.setItem(`pane-size:${agent.id}`, JSON.stringify(paneSize));
@@ -122,27 +124,40 @@ function TerminalPane({ agent, send, onAction, focused, onFocus, fontSize, termi
       lineHeight: 1.35, fontWeight: '400', fontWeightBold: '600', scrollback: 6000, allowProposedApi: false,
       theme: terminalTheme,
     });
-    const fit = new FitAddon(); fitRef.current = fit; term.loadAddon(fit); term.open(container.current);
+    const fit = new FitAddon(); term.loadAddon(fit); term.open(container.current);
     termRef.current = term; liveTerms.set(agent.id, term);
     term.write(buffers.get(agent.id) || '');
-    const resize = () => {
-      if (!container.current || !container.current.clientWidth || !container.current.clientHeight) return;
-      fit.fit(); send({ type: 'resize', id: agent.id, cols: term.cols, rows: term.rows });
-    };
+    const sizing = createTerminalSizer({ terminal: term, fit, element: container.current,
+      onResize: dimensions => send({ type: 'resize', id: agent.id, ...dimensions }) });
+    sizingRef.current = sizing; terminalSizers.set(agent.id, sizing);
+    const resize = () => sizing.schedule();
+    const repaint = () => sizing.schedule({ force: true });
     const observer = new ResizeObserver(resize); observer.observe(container.current);
     const input = term.onData(data => send({ type: 'input', id: agent.id, data }));
-    resize();
-    return () => { observer.disconnect(); input.dispose(); liveTerms.delete(agent.id); term.dispose(); };
+    window.addEventListener('resize', resize);
+    const onVisibility = () => { if (!document.hidden) repaint(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    document.fonts?.addEventListener('loadingdone', repaint);
+    document.fonts?.ready.then(() => sizing.schedule({ force: true }));
+    repaint();
+    return () => {
+      observer.disconnect(); sizing.dispose(); input.dispose();
+      window.removeEventListener('resize', resize);
+      document.removeEventListener('visibilitychange', onVisibility);
+      document.fonts?.removeEventListener('loadingdone', repaint);
+      terminalSizers.delete(agent.id); sizingRef.current = null;
+      liveTerms.delete(agent.id); term.dispose();
+    };
   }, [agent.id, send]);
   useEffect(() => {
     if (!termRef.current) return;
     termRef.current.options.fontSize = fontSize;
-    if (container.current?.clientWidth && container.current?.clientHeight) {
-      fitRef.current?.fit();
-      send({ type: 'resize', id: agent.id, cols: termRef.current.cols, rows: termRef.current.rows });
-    }
+    sizingRef.current?.schedule({ force: true });
   }, [fontSize, agent.id, send]);
   useEffect(() => { if (termRef.current) termRef.current.options.theme = terminalTheme; }, [terminalTheme]);
+  useEffect(() => {
+    if (!hidden) sizingRef.current?.schedule({ force: true });
+  }, [hidden, focused, agent.sessionId, connected]);
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
@@ -305,12 +320,12 @@ function App() {
             const a = previousSnapshot.current?.agents.find(a => a.id === event.id);
             if (a) log(`${a.name} · saída recebida`, { kind: 'output', agentId: a.id, projectId: a.projectId, sessionId: event.sessionId });
           }
-          if (event.type === 'replay' && term) send({ type: 'resize', id: event.id, cols: term.cols, rows: term.rows });
+          if (event.type === 'replay' && term) terminalSizers.get(event.id)?.schedule({ force: true });
         }
         if (event.type === 'reset') {
           terminalSessions.set(event.id, event.sessionId);
           buffers.set(event.id, ''); const term = liveTerms.get(event.id); term?.reset();
-          if (term) send({ type: 'resize', id: event.id, cols: term.cols, rows: term.rows });
+          if (term) terminalSizers.get(event.id)?.schedule({ force: true });
         }
         if (event.type === 'error') { notify(event.message, true); log(event.message, { kind: 'error' }); }
       };
