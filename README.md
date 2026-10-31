@@ -123,6 +123,8 @@ Instale e autentique cada CLI conforme as instruções do seu fornecedor. O Orqu
 
 ## Desenvolvimento e verificação
 
+As correções de escopo da memória, captura após reinício, cancelamento e fila, com os resultados e limites da validação, estão na [auditoria de estabilização de 30/10/2026](docs/auditoria-estabilizacao-2026-10-30.md). Depois de atualizar, reinicie o serviço e reabra os agentes para carregar os novos hooks de captura.
+
 O CI Windows, os comandos equivalentes locais, worktrees por agente e o fluxo de revisão cruzada estão descritos em [CI, worktrees e revisão cruzada](docs/ci-worktrees-revisao.md).
 
 O contrato de sessões, confirmação de recebimento, memória compartilhada e testes reais entre agentes está em [Estabilização do core](docs/core-estabilizacao.md).
@@ -155,4 +157,4 @@ As tarefas usam as permissões configuradas em cada CLI. A conclusão do process
 - `scripts/`: inicialização e verificações dos CLIs.
 - `tests/`: testes de API, terminais, fila e coordenação.
 
-O projeto foi inspirado na organização visual do [Alethe Agents](https://github.com/Kc1t/alethe-agents). A implementação é independente e não copia código, logotipo ou material visual do projeto.
+O projeto foi inspirado na organização visual do [Alethe Agents](https://github.com/Kc1t/alethe-agents). O fluxo de equipe, escopo por projeto e apresentação das opções avançadas também usam o [Orca](https://github.com/stablyai/orca) como referência de produto. A implementação é independente e não copia código, logotipo ou material visual desses projetos.
