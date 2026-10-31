@@ -8,7 +8,7 @@ import { PassThrough } from 'node:stream';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { Workspace } from '../server/workspace.mjs';
-import { TaskManager } from '../server/task-manager.mjs';
+import { TaskManager, overlap } from '../server/task-manager.mjs';
 import { Orchestration, bridgePath } from '../server/orchestration.mjs';
 import { parseWorkerEvent } from '../server/cli-adapters.mjs';
 
@@ -51,6 +51,33 @@ test('queue serializes overlapping folders, preserves cancellation lock and dedu
   assert.equal(f.manager.get(second.id).status, 'succeeded');
   assert.match(f.manager.get(second.id).result, /ágil/);
   assert.throws(() => f.manager.get(second.id, 'another-project'), /não encontrada/);
+});
+
+test('failed startup does not recursively start queued executors twice', async t => {
+  const f = fixture(t);
+  const originalSpawn = f.manager.spawn;
+  let attempts = 0;
+  f.manager.spawn = job => {
+    if (++attempts === 1) throw new Error('executor unavailable');
+    return originalSpawn(job);
+  };
+  const first = f.create('startup-failure');
+  const second = f.create('after-failure');
+  await tick();
+  assert.equal(f.manager.get(first.id).status, 'failed');
+  assert.equal(f.manager.get(second.id).status, 'running');
+  assert.equal(attempts, 2);
+  assert.equal(f.children.length, 1);
+  assert.equal(f.manager.running.size, 1);
+  f.children[0].end();
+  assert.equal(f.manager.get(second.id).status, 'succeeded');
+});
+
+test('folder locks include descendants of filesystem roots without matching siblings', () => {
+  const root = path.parse(process.cwd()).root;
+  assert.equal(overlap(root, path.join(root, 'project')), true);
+  assert.equal(overlap(path.join(root, 'project'), root), true);
+  assert.equal(overlap(path.join(root, 'project'), path.join(root, 'project-other')), false);
 });
 
 test('separate folders run concurrently; exit zero without structured completion is failure', async t => {

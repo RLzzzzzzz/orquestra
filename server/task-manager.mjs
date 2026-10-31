@@ -9,7 +9,10 @@ import { saveJson } from './persistence.mjs';
 export const activeTaskStates = ['queued', 'running', 'cancelling'];
 export const boardTaskStates = ['todo', 'in_progress', 'paused', 'blocked', 'done', 'cancelled'];
 function canonical(cwd) { const real = fs.realpathSync(cwd); return process.platform === 'win32' ? real.toLowerCase() : real; }
-export function overlap(a, b) { return a === b || a.startsWith(b + path.sep) || b.startsWith(a + path.sep); }
+export function overlap(a, b) {
+  const prefix = value => value.endsWith(path.sep) ? value : value + path.sep;
+  return a === b || a.startsWith(prefix(b)) || b.startsWith(prefix(a));
+}
 export class TaskManager {
   constructor(workspace, emit, options = {}) {
     this.workspace = workspace; this.emit = emit;
@@ -82,13 +85,17 @@ export class TaskManager {
     task.updatedAt = Date.now(); task.updatedBy = source; this.changed(); return { ...task };
   }
   pump() {
-    if (this.closed) return;
-    for (const job of this.jobs.filter(j => j.status === 'queued')) {
-      if (this.running.size >= this.maxParallel) break;
-      if ([...this.holds.values()].some(key => overlap(key, job.cwdKey))) continue;
-      if ([...this.running.values()].some(r => overlap(r.job.cwdKey, job.cwdKey) || r.job.agentId === job.agentId)) continue;
-      this.run(job);
-    }
+    if (this.closed || this.pumping) return;
+    this.pumping = true;
+    try {
+      for (const job of this.jobs) {
+        if (this.closed || this.running.size >= this.maxParallel) break;
+        if (job.status !== 'queued') continue;
+        if ([...this.holds.values()].some(key => overlap(key, job.cwdKey))) continue;
+        if ([...this.running.values()].some(r => overlap(r.job.cwdKey, job.cwdKey) || r.job.agentId === job.agentId)) continue;
+        this.run(job);
+      }
+    } finally { this.pumping = false; }
   }
   reserve(cwd, id) {
     const key = canonical(cwd);
