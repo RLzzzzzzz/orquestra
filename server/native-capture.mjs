@@ -118,11 +118,17 @@ export function nativeHooks({ binary, dataDir, endpoint, provider, platform = pr
   const handler = event => {
     const args = [binary, '--data-dir', dataDir, 'hook', '--event', event, '--agent', agent, '--server-url', endpoint];
     let command = args.map(quote).join(' ');
+    const sessionScoped = provider === 'antigravity';
+    if (sessionScoped && platform !== 'win32') {
+      command = `[ -n "$ORQUESTRA_MEMORY_BINARY" ] && [ -n "$AI_MEMORY_DATA_DIR" ] && [ -n "$ORQUESTRA_MEMORY_ENDPOINT" ] || exit 0; "$ORQUESTRA_MEMORY_BINARY" --data-dir "$AI_MEMORY_DATA_DIR" hook --event ${quote(event)} --agent ${quote(agent)} --server-url "$ORQUESTRA_MEMORY_ENDPOINT"`;
+    }
     if (platform === 'win32') {
       // CLI runners use different shells. UTF-16 encoded PowerShell avoids cmd
       // nested-quote rules and preserves accented executable paths and JSON.
       const literal = value => `'${value.replaceAll("'", "''")}'`;
-      const code = `$OutputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); $payload = [Console]::In.ReadToEnd(); $payload | & ${args.map(literal).join(' ')}; exit $LASTEXITCODE`;
+      const dynamicArgs = ['$env:ORQUESTRA_MEMORY_BINARY', literal('--data-dir'), '$env:AI_MEMORY_DATA_DIR', ...args.slice(3, -1).map(literal), '$env:ORQUESTRA_MEMORY_ENDPOINT'];
+      const guard = sessionScoped ? 'if (!$env:ORQUESTRA_MEMORY_BINARY -or !$env:AI_MEMORY_DATA_DIR -or !$env:ORQUESTRA_MEMORY_ENDPOINT) { exit 0 }; ' : '';
+      const code = `${guard}$OutputEncoding = [System.Text.UTF8Encoding]::new($false); [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); $payload = [Console]::In.ReadToEnd(); $payload | & ${(sessionScoped ? dynamicArgs : args.map(literal)).join(' ')}; exit $LASTEXITCODE`;
       command = `powershell.exe -NoProfile -NonInteractive -EncodedCommand ${Buffer.from(code, 'utf16le').toString('base64')}`;
     }
     return { type: 'command', command, timeout: provider === 'gemini' ? 20000 : 20 };

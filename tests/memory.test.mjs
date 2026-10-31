@@ -38,6 +38,25 @@ test('native capture configuration is scoped to supported fresh sessions and hid
   memory.status = 'unavailable'; assert.deepEqual(memory.agentCapture('project-a', 'opencode'), {});
 });
 
+test('Antigravity projects sharing a repository keep independent process capture routes', t => {
+  const directory = fs.mkdtempSync(path.resolve('.local-memory-capture-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const file = path.join(directory, '.agents', 'hooks.json');
+  fs.mkdirSync(path.dirname(file));
+  fs.writeFileSync(file, JSON.stringify({ 'user-hook': { Stop: [{ command: 'keep-user-command' }] } }));
+  const memory = Object.create(Memory.prototype);
+  Object.assign(memory, { status: 'ready', binary: 'fixture-ai-memory.exe', authToken: 'fixture-secret', dataDir: directory,
+    gateway: { register: project => `http://127.0.0.1:1234/project/${project}` } });
+  const first = memory.agentCapture('project-a', 'antigravity', directory);
+  const originalSettings = fs.readFileSync(file, 'utf8');
+  const second = memory.agentCapture('project-b', 'antigravity', directory);
+  assert.equal(fs.readFileSync(file, 'utf8'), originalSettings);
+  assert.equal(first.env.ORQUESTRA_MEMORY_ENDPOINT, 'http://127.0.0.1:1234/project/project-a');
+  assert.equal(second.env.ORQUESTRA_MEMORY_ENDPOINT, 'http://127.0.0.1:1234/project/project-b');
+  assert.equal(first.env.ORQUESTRA_MEMORY_BINARY, memory.binary);
+  assert.equal(JSON.parse(originalSettings)['user-hook'].Stop[0].command, 'keep-user-command');
+});
+
 test('external batch requires stable identities and preserves partial acknowledgements on saturation', async t => {
   const memory = Object.create(Memory.prototype); let request;
   const server = http.createServer(async (req, res) => {

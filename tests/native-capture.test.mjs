@@ -6,6 +6,7 @@ import http from 'node:http';
 import { captureGateway, nativeHooks, scopeOpenCodePlugin } from '../server/native-capture.mjs';
 import vm from 'node:vm';
 import { transformWithEsbuild } from 'vite';
+import { execFileSync } from 'node:child_process';
 
 test('OpenCode repository routing cannot remap the app project or request global recall', async () => {
   const original = `function applyMarkerParams(url: URL, cwd: string | undefined): boolean {
@@ -40,6 +41,29 @@ test('native hooks use real provider events and never persist bearer credentials
   assert.equal(nativeHooks({ ...options, provider: 'gemini' }).hooks.SessionStart[0].hooks[0].timeout, 20000);
   const agy = nativeHooks({ ...options, provider: 'antigravity' })['ai-memory'];
   assert.ok(agy.PreInvocation); assert.equal(agy.SessionEnd, undefined);
+});
+
+test('shared Antigravity hooks resolve capture routing from each session environment', { skip: process.platform !== 'win32' }, t => {
+  const directory = fs.mkdtempSync(path.resolve('.local-native-command-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const script = path.join(directory, 'capture.mjs'), binary = path.join(directory, 'capture.cmd');
+  fs.writeFileSync(script, `let body=''; for await (const chunk of process.stdin) body+=chunk; console.log(JSON.stringify({args:process.argv.slice(2),body}));`);
+  fs.writeFileSync(binary, '@echo off\r\n"%ORQUESTRA_CAPTURE_TEST_NODE%" "%ORQUESTRA_CAPTURE_TEST_SCRIPT%" %*\r\n');
+  const settings = nativeHooks({ binary: 'unused', dataDir: 'unused', endpoint: 'http://wrong/project/old', provider: 'antigravity', platform: 'win32' });
+  const command = settings['ai-memory'].Stop[0].command;
+  assert.ok(!JSON.stringify(settings).includes('http://wrong'));
+  const args = command.split(' ').slice(1);
+  for (const project of ['project-a', 'project-b']) {
+    const endpoint = `http://127.0.0.1:1234/project/${project}`;
+    const output = execFileSync('powershell.exe', args, { input: '{"session_id":"native-id"}', encoding: 'utf8', windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, ORQUESTRA_CAPTURE_TEST_NODE: process.execPath, ORQUESTRA_CAPTURE_TEST_SCRIPT: script, ORQUESTRA_MEMORY_BINARY: binary, AI_MEMORY_DATA_DIR: directory, ORQUESTRA_MEMORY_ENDPOINT: endpoint } });
+    const result = JSON.parse(output.trim());
+    assert.equal(result.args.at(-1), endpoint);
+    assert.equal(result.args[1], directory);
+    assert.equal(JSON.parse(result.body).session_id, 'native-id');
+  }
+  const env = { ...process.env }; delete env.ORQUESTRA_MEMORY_BINARY; delete env.ORQUESTRA_MEMORY_ENDPOINT;
+  assert.equal(execFileSync('powershell.exe', args, { input: '{}', encoding: 'utf8', windowsHide: true, env }).trim(), '');
 });
 
 test('gateway authenticates and fixes scope on single and batched native hooks', async t => {

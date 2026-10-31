@@ -128,6 +128,9 @@ export class Memory {
       const target = path.join(cwd, '.agents', 'hooks.json');
       const base = fs.existsSync(target) ? JSON.parse(fs.readFileSync(target, 'utf8')) : {};
       writeCaptureSettings(target, { ...base, ...settings });
+      // The repository hook file can be shared by several app projects. Its
+      // command resolves these values from each CLI process, never from disk.
+      env.ORQUESTRA_MEMORY_BINARY = this.binary; env.ORQUESTRA_MEMORY_ENDPOINT = endpoint;
     } else writeCaptureSettings(file, settings);
     return { hooksFile: file, ...(provider === 'codex' ? { args: codexHooksArgs(settings) } : {}), env };
   }
