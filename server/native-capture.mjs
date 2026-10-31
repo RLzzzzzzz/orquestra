@@ -7,6 +7,15 @@ import crossSpawn from 'cross-spawn';
 import { findCommand } from './workspace.mjs';
 import os from 'node:os';
 
+// Repository markers may contain aliases and inferred identities. None of
+// those may change the project selected in Orquestra.
+const routingKeys = ['identity', 'identity_src', 'identity_style', 'aliases', 'project_src', 'project_strategy'];
+export function scopeOpenCodePlugin(source) {
+  const anchor = 'function applyMarkerParams(';
+  if (!source.includes(anchor)) throw new Error('Plugin oficial sem função de escopo conhecida.');
+  return source.replace(anchor, 'function applyRepositoryMarkerParams(') + `\nfunction applyMarkerParams(url: URL, cwd: string | undefined): boolean {\n  if (!applyRepositoryMarkerParams(url, cwd)) return false;\n  const project = process.env.ORQUESTRA_MEMORY_PROJECT;\n  if (!project || !/^[\\w-]{1,128}$/.test(project)) return false;\n  for (const key of ${JSON.stringify(routingKeys)}) url.searchParams.delete(key);\n  url.searchParams.set('workspace', 'orquestra'); url.searchParams.set('project', project);\n  url.searchParams.set('default_global', 'false');\n  return true;\n}\n`;
+}
+
 export function linkedProfile(source, target, privateFile) {
   fs.mkdirSync(target, { recursive: true });
   if (!fs.existsSync(source)) return;
@@ -58,8 +67,9 @@ export async function captureGateway({ dataDir, endpoint, token }) {
       const match = rootBatch ? [null, null, '/hook/batch'] : incoming.pathname.match(/^\/project\/([\w-]+)(\/(?:hook(?:\/batch)?|handoff|healthz))$/);
       if (!match || (!rootBatch && !projects.has(match[1])) || !['GET', 'POST'].includes(req.method)) { res.writeHead(404).end(); return; }
       const scope = (url, projectId = match[1]) => {
-        for (const key of ['identity', 'identity_src', 'identity_style', 'aliases', 'project_src']) url.searchParams.delete(key);
+        for (const key of routingKeys) url.searchParams.delete(key);
         url.searchParams.set('workspace', 'orquestra'); url.searchParams.set('project', projectId);
+        url.searchParams.set('default_global', 'false');
         return url;
       };
       const target = new URL(match[2] + incoming.search, endpoint);

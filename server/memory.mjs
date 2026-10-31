@@ -8,7 +8,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { pathToFileURL } from 'node:url';
 import { findCommand, textField } from './workspace.mjs';
-import { captureGateway, nativeHooks, writeCaptureSettings, hermesProfile, linkedProfile, codexHooksArgs } from './native-capture.mjs';
+import { captureGateway, nativeHooks, writeCaptureSettings, hermesProfile, linkedProfile, codexHooksArgs, scopeOpenCodePlugin } from './native-capture.mjs';
 import os from 'node:os';
 
 const execute = promisify(execFile);
@@ -93,9 +93,7 @@ export class Memory {
       const { stdout } = await execute(binary, ['--data-dir', this.dataDir, 'install-hooks', '--agent', 'opencode', '--server-url', this.endpoint], { env: { ...env, AI_MEMORY_AUTH_TOKEN: '' }, windowsHide: true, timeout: 15000, maxBuffer: 2 * 1024 * 1024 });
       // Keep official capture policy, native IDs, spool, retries and event mapping.
       // Bind only routing to the app project without writing a repository marker.
-      const anchor = 'function applyMarkerParams(';
-      if (!stdout.includes(anchor)) throw new Error('Plugin oficial sem função de escopo conhecida.');
-      const source = stdout.replace(anchor, 'function applyRepositoryMarkerParams(') + `\nfunction applyMarkerParams(url: URL, cwd: string | undefined): boolean {\n  if (!applyRepositoryMarkerParams(url, cwd)) return false;\n  const project = process.env.ORQUESTRA_MEMORY_PROJECT;\n  if (!project) return false;\n  url.searchParams.delete('identity'); url.searchParams.delete('identity_src');\n  url.searchParams.set('workspace', 'orquestra'); url.searchParams.set('project', project);\n  return true;\n}\n`;
+      const source = scopeOpenCodePlugin(stdout);
       if (source.includes(this.authToken)) throw new Error('O gerador tentou persistir a credencial do servidor.');
       this.pluginPath = path.join(this.dataDir, 'integrations', 'opencode-ai-memory.ts');
       fs.mkdirSync(path.dirname(this.pluginPath), { recursive: true });
@@ -106,6 +104,7 @@ export class Memory {
   }
   info() { return { status: this.status, stage: this.stage, error: this.error, engine: 'akitaonrails/ai-memory', version: '3.1.0', local: true, transport: 'http', lifecycleCapture: !!(this.gateway || this.pluginPath) && this.status === 'ready', captureProviders: this.status === 'ready' ? [...(this.pluginPath ? ['opencode'] : []), ...(this.gateway ? ['codex', 'claude', 'gemini', 'antigravity', 'hermes'] : [])] : [], captureScope: this.gateway ? 'native-provider-hooks' : this.pluginPath ? 'native-opencode-new-sessions' : 'delegated-task-records', captureError: this.captureError || '' }; }
   agentCapture(projectId, provider, cwd) {
+    this.validateProject(projectId);
     if (this.status !== 'ready') return {};
     const env = { ORQUESTRA_MEMORY_PROJECT: projectId, AI_MEMORY_AUTH_TOKEN: this.authToken, AI_MEMORY_DATA_DIR: this.dataDir, AI_MEMORY_CAPTURE_OWNER: '', AI_MEMORY_BACKFILL_ON_START: 'false' };
     if (provider === 'opencode') return this.pluginPath ? { plugin: pathToFileURL(this.pluginPath).href, env } : {};
@@ -134,6 +133,7 @@ export class Memory {
   }
   async postHookBatch(endpointUrl, events, token, projectId) {
     if (!projectId) throw new Error('Informe o projeto explícito para captura externa.');
+    this.validateProject(projectId);
     if (events.some(ev => !/^[\w-]{1,64}$/.test(ev.ingestKey || '') || !ev.sessionId)) throw new Error('Evento sem sessão ou chave estável de ingestão.');
     if (events.some(ev => ev.body?.session_id && ev.body.session_id !== ev.sessionId)) throw new Error('Identidade nativa da sessão diverge do corpo do evento.');
     const batchItems = events.map(ev => ({
@@ -154,6 +154,7 @@ export class Memory {
     return { ...receipt, httpStatus: response.status };
   }
   async ensureProject(projectId) {
+    this.validateProject(projectId);
     if (!this.projects.has(projectId)) {
       const pending = (async () => {
         try { decodeResult(await this.client.callTool({ name: 'memory_status', arguments: { workspace: 'orquestra', project: projectId } }, undefined, { timeout: 15000 })); }
@@ -169,6 +170,7 @@ export class Memory {
   }
   call(projectId, operation, input = {}) {
     if (this.closed) return Promise.reject(new Error('AI Memory está encerrando.'));
+    try { this.validateProject(projectId); } catch (error) { return Promise.reject(error); }
     // The official engine writes a shared Git wiki. Serialize calls through the
     // same client so task completion and agent writes cannot race its index.
     const pending = (this.operations || Promise.resolve()).then(() => this.performCall(projectId, operation, input));
@@ -176,6 +178,7 @@ export class Memory {
     return pending;
   }
   async performCall(projectId, operation, input = {}) {
+    this.validateProject(projectId);
     await this.ready;
     if (this.status !== 'ready') throw new Error(this.error || 'Memória indisponível.');
     await this.ensureProject(projectId);
@@ -195,10 +198,13 @@ export class Memory {
       if (input.create_only === true) args.create_only = true;
       if (args.expected_page_id && args.create_only) throw new Error('Use versão esperada ou criação exclusiva, não ambos.');
     }
-    if (args.path && (args.path.includes('..') || !/^[\w/-]+\.md$/.test(args.path))) throw new Error('Use um caminho relativo como notes/decisao.md.');
+    if (args.path && !/^(?:[\w-]+\/)*[\w-]+\.md$/.test(args.path)) throw new Error('Use um caminho relativo como notes/decisao.md.');
     const name = { query: 'memory_query', write: 'memory_write_page', read: 'memory_read_page', delete: 'memory_delete_page', recent: 'memory_recent', briefing: 'memory_briefing', status: 'memory_status', handoff_begin: 'memory_handoff_begin', handoff_accept: 'memory_handoff_accept', handoff_list: 'memory_handoff_list' }[operation];
     const result = await this.client.callTool({ name, arguments: { ...args, workspace: 'orquestra', project: projectId } }, undefined, { timeout: 15000 });
     return decodeResult(result);
+  }
+  validateProject(projectId) {
+    if (typeof projectId !== 'string' || !/^[\w-]{1,128}$/.test(projectId)) throw new Error('Projeto de memória inválido. Informe o projeto explícito.');
   }
   async context(projectId, query = '') {
     // A briefing contains page descriptors, not their bodies. Hydrate a bounded

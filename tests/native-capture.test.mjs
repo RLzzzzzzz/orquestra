@@ -3,7 +3,29 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
-import { captureGateway, nativeHooks } from '../server/native-capture.mjs';
+import { captureGateway, nativeHooks, scopeOpenCodePlugin } from '../server/native-capture.mjs';
+import vm from 'node:vm';
+import { transformWithEsbuild } from 'vite';
+
+test('OpenCode repository routing cannot remap the app project or request global recall', async () => {
+  const original = `function applyMarkerParams(url: URL, cwd: string | undefined): boolean {
+    for (const key of ['identity', 'identity_src', 'identity_style', 'aliases', 'project_src', 'project_strategy']) url.searchParams.set(key, 'foreign');
+    url.searchParams.set('default_global', 'true'); return true;
+  }`;
+  const source = scopeOpenCodePlugin(original);
+  const { code } = await transformWithEsbuild(source, 'plugin.ts', { loader: 'ts' });
+  const context = vm.createContext({ URL, process: { env: { ORQUESTRA_MEMORY_PROJECT: 'project-a' } } });
+  vm.runInContext(code, context);
+  const url = new URL('http://local/hook?workspace=foreign&project=foreign');
+  assert.equal(context.applyMarkerParams(url, '/repository'), true);
+  assert.equal(url.searchParams.get('workspace'), 'orquestra');
+  assert.equal(url.searchParams.get('project'), 'project-a');
+  assert.equal(url.searchParams.get('default_global'), 'false');
+  for (const key of ['identity', 'identity_src', 'identity_style', 'aliases', 'project_src', 'project_strategy']) assert.equal(url.searchParams.has(key), false);
+  delete context.process.env.ORQUESTRA_MEMORY_PROJECT;
+  assert.equal(context.applyMarkerParams(url, '/repository'), false);
+  assert.throws(() => scopeOpenCodePlugin('unsupported generator'), /escopo conhecida/);
+});
 
 test('native hooks use real provider events and never persist bearer credentials', () => {
   const options = { binary: 'C:/App Folder/ai-memory.exe', dataDir: 'C:/Data', endpoint: 'http://127.0.0.1:123/project/authorized', platform: 'win32' };
@@ -33,9 +55,10 @@ test('gateway authenticates and fixes scope on single and batched native hooks',
   assert.equal((await fetch(endpoint + '/hook', { method: 'POST', body: '{}' })).status, 403);
   assert.equal((await fetch(endpoint + '/hook', { method: 'POST', headers: { ...headers, Origin: 'http://foreign' }, body: '{}' })).status, 403);
   assert.equal((await fetch(endpoint + '/mcp', { headers })).status, 404);
-  await fetch(endpoint + '/hook?project=foreign&workspace=foreign&identity=bad', { method: 'POST', headers, body: '{"session_id":"native-a"}' });
+  await fetch(endpoint + '/hook?project=foreign&workspace=foreign&identity=bad&aliases=foreign&project_strategy=repo-root&default_global=true', { method: 'POST', headers, body: '{"session_id":"native-a"}' });
   const query = new URL(requests[0].url, 'http://local').searchParams;
   assert.equal(query.get('project'), 'project-a'); assert.equal(query.get('workspace'), 'orquestra'); assert.equal(query.has('identity'), false);
+  assert.equal(query.has('aliases'), false); assert.equal(query.has('project_strategy'), false); assert.equal(query.get('default_global'), 'false');
   const response = await fetch(endpoint + '/hook/batch', { method: 'POST', headers, body: JSON.stringify([{ url: '/hook?event=session-start&project=foreign', body: { session_id: 'native-a' } }]) });
   assert.deepEqual((await response.json()).accepted_indices, [0]);
   assert.match(JSON.parse(requests[1].body)[0].url, /project=project-a/);

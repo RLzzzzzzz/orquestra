@@ -84,6 +84,19 @@ test('rejects memory deletion paths outside the project wiki', async () => {
   const memory = Object.create(Memory.prototype);
   memory.ready = Promise.resolve(); memory.status = 'ready'; memory.ensureProject = async () => {};
   await assert.rejects(memory.call('project-a', 'delete', { path: '../outside.md' }), /caminho relativo/i);
+  for (const pagePath of ['/outside.md', 'notes//outside.md', 'notes/../outside.md', 'C:/outside.md']) {
+    await assert.rejects(memory.call('project-a', 'read', { path: pagePath }), /caminho relativo/i);
+  }
+});
+
+test('missing or malformed project never falls back to the engine default scope', async () => {
+  const memory = Object.create(Memory.prototype);
+  memory.ready = Promise.resolve(); memory.status = 'ready';
+  memory.ensureProject = async () => assert.fail('invalid scope reached engine');
+  for (const projectId of [undefined, null, '', ' project ', '../foreign', '/foreign', 'a'.repeat(129)]) {
+    await assert.rejects(memory.call(projectId, 'status'), /projeto explícito/i);
+    assert.throws(() => memory.agentCapture(projectId, 'codex'), /projeto explícito/i);
+  }
 });
 
 test('search stays project-scoped without model answers and writes redact credentials', async () => {
