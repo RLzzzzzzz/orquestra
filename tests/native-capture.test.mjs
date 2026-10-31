@@ -64,3 +64,27 @@ test('gateway authenticates and fixes scope on single and batched native hooks',
   assert.match(JSON.parse(requests[1].body)[0].url, /project=project-a/);
   assert.ok(!fs.readFileSync(path.join(directory, 'orquestra-capture-port.json'), 'utf8').includes('private-token'));
 });
+
+test('gateway restores authorized project routes for spool draining after restart', async t => {
+  const directory = fs.mkdtempSync(path.resolve('.local-native-gateway-'));
+  const requests = [];
+  const engine = http.createServer(async (req, res) => {
+    let body = ''; for await (const chunk of req) body += chunk;
+    requests.push(JSON.parse(body));
+    res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"accepted":1,"accepted_indices":[0]}');
+  });
+  await new Promise(resolve => engine.listen(0, '127.0.0.1', resolve));
+  const options = { dataDir: directory, endpoint: `http://127.0.0.1:${engine.address().port}`, token: 'fixture-token' };
+  let gateway = await captureGateway(options);
+  t.after(async () => { await gateway.close(); await new Promise(resolve => engine.close(resolve)); fs.rmSync(directory, { recursive: true, force: true }); });
+  const previousEndpoint = gateway.register('project-a');
+  await gateway.close();
+  gateway = await captureGateway(options);
+  const root = new URL(previousEndpoint).origin;
+  const headers = { Authorization: 'Bearer fixture-token', 'Content-Type': 'application/json' };
+  const batch = [{ url: '/project/project-a/hook?event=stop', body: { session_id: 'native-session' } }];
+  const receipt = await fetch(root + '/hook/batch', { method: 'POST', headers, body: JSON.stringify(batch) });
+  assert.equal(receipt.status, 200);
+  assert.equal(new URL(requests[0][0].url, root).searchParams.get('project'), 'project-a');
+  assert.equal((await fetch(root + '/project/never-registered/hook', { method: 'POST', headers, body: '{}' })).status, 404);
+});

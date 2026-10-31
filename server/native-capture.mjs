@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import crossSpawn from 'cross-spawn';
 import { findCommand } from './workspace.mjs';
 import os from 'node:os';
+import { saveJson } from './persistence.mjs';
 
 // Repository markers may contain aliases and inferred identities. None of
 // those may change the project selected in Orquestra.
@@ -54,9 +55,11 @@ export function hermesProfile(dataDir, projectId, env = process.env) {
 // Native hooks retain the official sanitizer, spool, IDs and capture policy.
 // This loopback gateway binds their inferred scope to the authorized app project.
 export async function captureGateway({ dataDir, endpoint, token }) {
-  const projects = new Set();
   const portFile = path.join(dataDir, 'orquestra-capture-port.json');
-  const saved = fs.existsSync(portFile) ? JSON.parse(fs.readFileSync(portFile, 'utf8')).port : 0;
+  const saved = fs.existsSync(portFile) ? JSON.parse(fs.readFileSync(portFile, 'utf8')) : {};
+  // Official spool files retain the old project URLs. Restore their authorized
+  // routes before any agent is reopened so draining after restart still works.
+  const projects = new Set((Array.isArray(saved.projects) ? saved.projects : []).filter(id => typeof id === 'string' && /^[\w-]{1,128}$/.test(id)));
   const server = http.createServer(async (req, res) => {
     try {
       const supplied = Buffer.from(req.headers.authorization || '');
@@ -96,9 +99,15 @@ export async function captureGateway({ dataDir, endpoint, token }) {
       res.end(Buffer.from(await response.arrayBuffer()));
     } catch { if (!res.headersSent) res.writeHead(502); res.end('{"error":"Falha no gateway de captura."}'); }
   });
-  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(saved || 0, '127.0.0.1', resolve); });
-  fs.writeFileSync(portFile, JSON.stringify({ port: server.address().port }));
-  return { register(projectId) { if (!/^[\w-]+$/.test(projectId)) throw new Error('Projeto inválido.'); projects.add(projectId); return `http://127.0.0.1:${server.address().port}/project/${projectId}`; }, close() { server.closeAllConnections(); return new Promise(resolve => server.close(resolve)); } };
+  const port = Number.isInteger(saved.port) && saved.port > 0 && saved.port < 65536 ? saved.port : 0;
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
+  const persist = () => saveJson(portFile, { port: server.address().port, projects: [...projects] });
+  try { persist(); } catch (error) { await new Promise(resolve => server.close(resolve)); throw error; }
+  return { register(projectId) {
+    if (typeof projectId !== 'string' || !/^[\w-]{1,128}$/.test(projectId)) throw new Error('Projeto inválido.');
+    if (!projects.has(projectId)) { projects.add(projectId); try { persist(); } catch (error) { projects.delete(projectId); throw error; } }
+    return `http://127.0.0.1:${server.address().port}/project/${projectId}`;
+  }, close() { server.closeAllConnections(); return new Promise(resolve => server.close(resolve)); } };
 }
 
 const common = { SessionStart: 'session-start', UserPromptSubmit: 'user-prompt-submit', PreToolUse: 'pre-tool-use', PostToolUse: 'post-tool-use', PreCompact: 'pre-compact', Stop: 'stop', SessionEnd: 'session-end' };
