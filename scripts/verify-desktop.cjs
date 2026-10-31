@@ -8,6 +8,9 @@ module.exports = async function verifyDesktop(context) {
   const root = path.resolve(__dirname, '..');
   const asar = await import('@electron/asar');
   const archive = path.join(context.appOutDir, 'resources', 'app.asar');
+  if (!asar.extractFile(archive, 'assets/orquestra.ico').equals(fs.readFileSync(path.join(root, 'electron', 'assets', 'orquestra.ico')))) {
+    throw new Error('Ícone da aplicação ausente ou desatualizado no pacote Electron.');
+  }
   for (const name of ['main.cjs', 'preload.cjs', 'notifications.cjs']) {
     if (!asar.extractFile(archive, name).equals(fs.readFileSync(path.join(root, 'electron', name)))) {
       throw new Error(`Arquivo Electron ausente ou desatualizado: ${name}`);

@@ -7,6 +7,7 @@ files:
   - main.cjs
   - preload.cjs
   - notifications.cjs
+  - assets/orquestra.ico
   - package.json
   - '!node_modules/**/*'
 extraResources:
@@ -21,6 +22,7 @@ afterPack: scripts/verify-desktop.cjs
 npmRebuild: false
 asar: true
 win:
+  icon: electron/assets/orquestra.ico
   target:
     - target: portable
       arch: [x64]

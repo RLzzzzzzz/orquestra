@@ -111,6 +111,7 @@ if (!app.requestSingleInstanceLock()) {
     if (quitting) return;
     window = new BrowserWindow({
       title: 'Orquestra', width: 1440, height: 960, minWidth: 900, minHeight: 600,
+      icon: path.join(__dirname, 'assets', 'orquestra.ico'),
       backgroundColor: '#111318', show: false, autoHideMenuBar: true,
       webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true },
     });
