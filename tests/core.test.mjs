@@ -84,12 +84,6 @@ test('terminal pastes preserve LF, reject stale input and keep envelope budget s
   await assert.rejects(terminal.prompt('agent', 'late', { sessionId: 'old' }), /sessão/);
 });
 
-test('AI Memory calls serialize shared wiki writes and recover after a rejected operation', async () => {
-  const memory = Object.create(Memory.prototype); memory.ready = Promise.resolve(); memory.status = 'ready'; memory.ensureProject = async () => {};
-  let active = 0, maximum = 0;
-  memory.client = { async callTool({ arguments: args }) {
-    active++; maximum = Math.max(maximum, active); await tick(); active--;
-    return { isError: args.body.includes('fail'), content: [{ type: 'text', text: args.body.includes('fail') ? 'write failed' : '{"ok":true}' }] };
 test('terminal resize deduplicates geometry and rejects stale or invalid dimensions', () => {
   const terminal = new Terminals(() => {}), calls = [];
   const session = { id: 'current', status: 'running', cols: 100, rows: 28, proc: { resize: (...size) => calls.push(size) } };
@@ -109,6 +103,12 @@ test('terminal resize deduplicates geometry and rejects stale or invalid dimensi
   assert.doesNotThrow(() => terminal.resize('agent', 80, 24, 'current'));
 });
 
+test('AI Memory calls serialize shared wiki writes and recover after a rejected operation', async () => {
+  const memory = Object.create(Memory.prototype); memory.ready = Promise.resolve(); memory.status = 'ready'; memory.ensureProject = async () => {};
+  let active = 0, maximum = 0;
+  memory.client = { async callTool({ arguments: args }) {
+    active++; maximum = Math.max(maximum, active); await tick(); active--;
+    return { isError: args.body.includes('fail'), content: [{ type: 'text', text: args.body.includes('fail') ? 'write failed' : '{"ok":true}' }] };
   } };
   const results = await Promise.allSettled(['first', 'fail', 'last'].map(body => memory.call('project', 'write', { path: 'notes/probe.md', body })));
   assert.equal(maximum, 1); assert.deepEqual(results.map(r => r.status), ['fulfilled', 'rejected', 'fulfilled']);

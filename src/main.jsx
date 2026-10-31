@@ -35,8 +35,8 @@ const colorThemes = {
 };
 const buffers = new Map();
 const liveTerms = new Map();
-const terminalActivity = new Map();
 const terminalSizers = new Map();
+const terminalActivity = new Map();
 const terminalSessions = new Map();
 const readLocal = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } };
 const statusLabel = a => a.status === 'running' ? (a.mode === 'fallback' ? 'Shell disponível · agente saiu' : 'Em execução') : a.status === 'exited' ? 'Encerrado' : 'Pronto para iniciar';
@@ -133,12 +133,12 @@ function TerminalPane({ agent, send, onAction, focused, onFocus, fontSize, termi
     const resize = () => sizing.schedule();
     const repaint = () => sizing.schedule({ force: true });
     const observer = new ResizeObserver(resize); observer.observe(container.current);
-    const input = term.onData(data => send({ type: 'input', id: agent.id, data }));
     window.addEventListener('resize', resize);
     const onVisibility = () => { if (!document.hidden) repaint(); };
     document.addEventListener('visibilitychange', onVisibility);
     document.fonts?.addEventListener('loadingdone', repaint);
     document.fonts?.ready.then(() => sizing.schedule({ force: true }));
+    const input = term.onData(data => send({ type: 'input', id: agent.id, data }));
     repaint();
     return () => {
       observer.disconnect(); sizing.dispose(); input.dispose();
@@ -154,10 +154,10 @@ function TerminalPane({ agent, send, onAction, focused, onFocus, fontSize, termi
     termRef.current.options.fontSize = fontSize;
     sizingRef.current?.schedule({ force: true });
   }, [fontSize, agent.id, send]);
-  useEffect(() => { if (termRef.current) termRef.current.options.theme = terminalTheme; }, [terminalTheme]);
   useEffect(() => {
     if (!hidden) sizingRef.current?.schedule({ force: true });
   }, [hidden, focused, agent.sessionId, connected]);
+  useEffect(() => { if (termRef.current) termRef.current.options.theme = terminalTheme; }, [terminalTheme]);
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;

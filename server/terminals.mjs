@@ -40,6 +40,7 @@ export class Terminals {
       // cmd uses different quote rules than CommandLineToArgvW. Pass its command
       // line verbatim so quoted paths with spaces/accented characters survive.
       : (windows ? `/d /s /c "${command}"` : ['-lc', command]);
+    const cols = previous?.cols || 100, rows = previous?.rows || 28;
     const proc = pty.spawn(options.launch ? process.execPath : executable, options.launch ? [fileURLToPath(new URL('./cli-launcher.mjs', import.meta.url))] : args, {
       name: 'xterm-256color', cwd: options.launch?.cwd || agent.cwd, cols, rows,
       env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', ...options.env, ...(options.launch && { ORQUESTRA_LAUNCH: JSON.stringify(options.launch) }) },
@@ -49,7 +50,6 @@ export class Terminals {
     this.emit({ type: 'reset', id: agent.id, sessionId: session.id });
     this.attach(agent, session);
     this.emit({ type: 'changed' });
-    const cols = previous?.cols || 100, rows = previous?.rows || 28;
   }
   attach(agent, session) {
     const proc = session.proc;
