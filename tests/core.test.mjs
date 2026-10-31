@@ -90,6 +90,25 @@ test('AI Memory calls serialize shared wiki writes and recover after a rejected 
   memory.client = { async callTool({ arguments: args }) {
     active++; maximum = Math.max(maximum, active); await tick(); active--;
     return { isError: args.body.includes('fail'), content: [{ type: 'text', text: args.body.includes('fail') ? 'write failed' : '{"ok":true}' }] };
+test('terminal resize deduplicates geometry and rejects stale or invalid dimensions', () => {
+  const terminal = new Terminals(() => {}), calls = [];
+  const session = { id: 'current', status: 'running', cols: 100, rows: 28, proc: { resize: (...size) => calls.push(size) } };
+  terminal.sessions.set('agent', session);
+  terminal.resize('agent', 100, 28, 'current');
+  terminal.resize('agent', 90, 32, 'stale');
+  terminal.resize('agent', 0, 32, 'current');
+  terminal.resize('agent', 90.5, 32, 'current');
+  assert.deepEqual(calls, []);
+  terminal.resize('agent', 90, 32, 'current');
+  terminal.resize('agent', 90, 32, 'current');
+  assert.deepEqual(calls, [[90, 32]]);
+  session.proc.resize = () => { throw new Error('PTY resize failed'); };
+  assert.throws(() => terminal.resize('agent', 80, 24, 'current'), /failed/);
+  assert.equal(session.cols, 90); assert.equal(session.rows, 32);
+  session.status = 'exited';
+  assert.doesNotThrow(() => terminal.resize('agent', 80, 24, 'current'));
+});
+
   } };
   const results = await Promise.allSettled(['first', 'fail', 'last'].map(body => memory.call('project', 'write', { path: 'notes/probe.md', body })));
   assert.equal(maximum, 1); assert.deepEqual(results.map(r => r.status), ['fulfilled', 'rejected', 'fulfilled']);

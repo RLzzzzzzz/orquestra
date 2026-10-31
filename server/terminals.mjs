@@ -41,14 +41,15 @@ export class Terminals {
       // line verbatim so quoted paths with spaces/accented characters survive.
       : (windows ? `/d /s /c "${command}"` : ['-lc', command]);
     const proc = pty.spawn(options.launch ? process.execPath : executable, options.launch ? [fileURLToPath(new URL('./cli-launcher.mjs', import.meta.url))] : args, {
-      name: 'xterm-256color', cwd: options.launch?.cwd || agent.cwd, cols: 100, rows: 28,
+      name: 'xterm-256color', cwd: options.launch?.cwd || agent.cwd, cols, rows,
       env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', ...options.env, ...(options.launch && { ORQUESTRA_LAUNCH: JSON.stringify(options.launch) }) },
     });
-    const session = { id: randomUUID(), proc, cwd: options.launch?.cwd || agent.cwd, status: 'running', managed: options.managed === true, mode: options.mode || (agent.provider === 'shell' ? 'shell' : 'agent'), pid: proc.pid, history: '', startedAt: Date.now() };
+    const session = { id: randomUUID(), proc, cols, rows, cwd: options.launch?.cwd || agent.cwd, status: 'running', managed: options.managed === true, mode: options.mode || (agent.provider === 'shell' ? 'shell' : 'agent'), pid: proc.pid, history: '', startedAt: Date.now() };
     this.sessions.set(agent.id, session);
     this.emit({ type: 'reset', id: agent.id, sessionId: session.id });
     this.attach(agent, session);
     this.emit({ type: 'changed' });
+    const cols = previous?.cols || 100, rows = previous?.rows || 28;
   }
   attach(agent, session) {
     const proc = session.proc;
@@ -73,7 +74,7 @@ export class Terminals {
         name: 'xterm-256color', cwd: agent.cwd, cols: previous.cols || 100, rows: previous.rows || 28,
         env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
       });
-      const session = { id: randomUUID(), proc, cwd: agent.cwd, status: 'running', mode: 'fallback', pid: proc.pid, history: (previous.history + notice).slice(-MAX_HISTORY), agentExitCode: exitCode, startedAt: Date.now() };
+      const session = { id: randomUUID(), proc, cols: previous.cols || 100, rows: previous.rows || 28, cwd: agent.cwd, status: 'running', mode: 'fallback', pid: proc.pid, history: (previous.history + notice).slice(-MAX_HISTORY), agentExitCode: exitCode, startedAt: Date.now() };
       this.sessions.set(agent.id, session);
       this.attach(agent, session);
       // Publish the new identity before output, so clients do not discard it as stale.
@@ -118,7 +119,11 @@ export class Terminals {
     if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || rows < 2 || cols > 500 || rows > 300) return;
     const session = this.sessions.get(id);
     if (sessionId && session?.id !== sessionId) return;
-    if (session?.status === 'running') { session.cols = cols; session.rows = rows; session.proc.resize(cols, rows); }
+    if (session?.status !== 'running' || (session.cols === cols && session.rows === rows)) return;
+    // Repeating an unchanged size forces some TUIs to redraw/reflow unnecessarily.
+    // Only remember dimensions accepted by the PTY, so failed resizes can retry.
+    session.proc.resize(cols, rows);
+    session.cols = cols; session.rows = rows;
   }
   stop(id) {
     const session = this.sessions.get(id);
