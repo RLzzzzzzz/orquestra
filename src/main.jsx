@@ -174,7 +174,7 @@ function TerminalPane({ agent, send, onAction, focused, onFocus, fontSize, termi
     const url = URL.createObjectURL(new Blob([buffers.get(agent.id) || ''], { type: 'text/plain;charset=utf-8' }));
     const a = document.createElement('a'); a.href = url; a.download = `${agent.name.replace(/[^\p{L}\p{N}_-]/gu, '_')}.txt`; a.click(); URL.revokeObjectURL(url);
   };
-  return <section ref={paneRef} className={`terminal-pane ${receiving ? 'receiving-output' : ''} ${focused ? 'focused' : ''} ${draggingId === agent.id ? 'pane-dragging' : ''} ${dropTargetId === agent.id ? 'pane-drop-target' : ''}`} style={{ '--provider': meta.color, '--terminal-bg': terminalTheme.background, display: hidden ? 'none' : undefined, ...(!focused && paneSize && { width: paneSize.width, height: paneSize.height }) }} aria-label={`Terminal de ${agent.name}`}
+  return <section ref={paneRef} className={`terminal-pane ${receiving ? 'receiving-output' : ''} ${focused ? 'focused' : ''} ${draggingId === agent.id ? 'pane-dragging' : ''} ${dropTargetId === agent.id ? 'pane-drop-target' : ''}`} style={{ '--provider': meta.color, '--terminal-bg': terminalTheme.background, ...(agent.provider === 'opencode' && { minHeight: Math.ceil(fontSize * 1.35) * 14 + 300 }), display: hidden ? 'none' : undefined, ...(!focused && paneSize && { width: paneSize.width, height: paneSize.height }) }} aria-label={`Terminal de ${agent.name}`}
     onDragOver={event => {
       if (!draggingId || draggingId === agent.id || focused) return;
       event.preventDefault(); event.dataTransfer.dropEffect = 'move'; onDragTarget(agent.id);
