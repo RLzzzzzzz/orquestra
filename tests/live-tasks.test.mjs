@@ -30,6 +30,37 @@ test('closed, fallback and unmanaged terminals cannot receive delegation', () =>
   for (const id of ['fallback', 'manual', 'missing']) { assert.equal(live.available(id), false); assert.throws(() => live.start({ agentId: id }), /Abra o terminal/); }
 });
 
+test('cancellation retains the live task until PTY exit and refuses late completion', async () => {
+  const events = new EventEmitter();
+  const session = { id: 'session', status: 'running', mode: 'agent', managed: true, mcpReady: true,
+    proc: {
+      onData(fn) { events.on('data', fn); return { dispose: () => events.off('data', fn) }; },
+      onExit(fn) { events.on('exit', fn); return { dispose: () => events.off('exit', fn) }; },
+    } };
+  let stopped = 0;
+  const terminals = { sessions: new Map([['worker', session]]), async prompt() {}, stop() { stopped++; } };
+  const live = new LiveTasks(terminals);
+  const job = { id: 'task', agentId: 'worker', projectId: 'project', prompt: 'Work' };
+  const child = live.start(job);
+  child.stdout.resume(); child.stderr.resume();
+  let closed = false;
+  child.on('close', () => { closed = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  const scope = { agentId: 'worker', projectId: 'project', sessionId: 'session' };
+  live.acknowledge(scope, { task_id: 'task' });
+  live.stop(child);
+  assert.equal(stopped, 1);
+  assert.equal(closed, false);
+  assert.equal(live.active.size, 1);
+  assert.throws(() => live.complete(scope, { task_id: 'task', status: 'succeeded', result: 'late' }), /interrompida/);
+  assert.equal(live.completed.size, 0);
+  assert.throws(() => live.acknowledge(scope, { task_id: 'task' }), /interrompida/);
+  events.emit('exit');
+  assert.equal(closed, true);
+  assert.equal(live.active.size, 0);
+  assert.equal(events.listenerCount('data'), 0);
+});
+
 test('common credentials are redacted before memory persistence', () => {
   const result = redact('token=supersecret password:example sk-abcdefghijklmnopqrstuv');
   assert.ok(!result.includes('supersecret')); assert.ok(!result.includes('example')); assert.ok(!result.includes('sk-'));

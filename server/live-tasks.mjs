@@ -64,6 +64,7 @@ export class LiveTasks {
   acknowledge(scope, input) {
     const entry = this.active.get(scope.agentId);
     if (!entry || entry.job.id !== input.task_id || entry.job.projectId !== scope.projectId || this.terminals.sessions.get(scope.agentId) !== entry.session || (scope.sessionId && scope.sessionId !== entry.session.id)) throw new Error('Esta tarefa não pertence à sessão atual deste executor.');
+    if (entry.stopping) throw new Error('A tarefa está sendo interrompida. Aguarde o encerramento do terminal.');
     clearTimeout(entry.receiptTimer);
     entry.job.receivedAt ||= Date.now(); entry.job.delivery = 'acknowledged';
     entry.child.stdout.write(JSON.stringify({ type: 'orquestra.receipt', sessionId: entry.session.id, receivedAt: entry.job.receivedAt }) + '\n');
@@ -88,6 +89,10 @@ export class LiveTasks {
   stop(child) {
     const entry = [...this.active.values()].find(e => e.child === child);
     if (!entry) return;
+    // A completion arriving while kill is pending must not release the folder
+    // lock before the PTY exit confirms that execution has actually stopped.
+    entry.stopping = true;
+    clearTimeout(entry.receiptTimer);
     // Kill the actual PTY to guarantee cancellation before releasing the folder lock.
     if (this.terminals.sessions.get(entry.job.agentId) === entry.session) this.terminals.stop(entry.job.agentId);
     else entry.session.proc.kill(); // Never cancel a replacement session by agent ID.
