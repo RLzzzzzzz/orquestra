@@ -8,6 +8,13 @@ export function createTerminalSizer({ terminal, fit, element, onResize, requestF
     timer = null;
     if (disposed || !visible() || !pending) return;
     const next = pending; pending = null;
+    const changed = terminal.cols !== next.cols || terminal.rows !== next.rows;
+    // A full-screen CLI may draw while a resize burst is being coalesced. Keep
+    // xterm at the last published PTY size until both ends can change together;
+    // otherwise a frame drawn for 80 columns can wrap into a temporary 40-column
+    // canvas even when the final 80-column size needs no remote resize at all.
+    if (changed) terminal.resize(next.cols, next.rows);
+    if (changed || next.force) terminal.refresh(0, next.rows - 1);
     if (!published || next.force || next.cols !== published.cols || next.rows !== published.rows) {
       onResize({ cols: next.cols, rows: next.rows });
       published = next;
@@ -29,11 +36,9 @@ export function createTerminalSizer({ terminal, fit, element, onResize, requestF
     const cols = Math.max(2, Math.min(500, Math.floor(dimensions.cols)));
     const rows = Math.max(2, Math.min(300, Math.floor(dimensions.rows)));
     const changed = terminal.cols !== cols || terminal.rows !== rows;
-    if (changed) terminal.resize(cols, rows);
-    // Redraw the entire viewport after geometry changes, including cells that
-    // were clipped before widening. Use the public API, without xterm internals.
-    if (changed || force) terminal.refresh(0, rows - 1);
-    if (changed || force || !published) {
+    // Retain the final measurement even if it returns to the current size;
+    // that replaces an intermediate pending size without ever applying it.
+    if (changed || force || !published || pending) {
       pending = { cols, rows, force };
       if (force) { clearTimer(timer); publish(); }
       else if (timer === null) timer = setTimer(publish, interval);

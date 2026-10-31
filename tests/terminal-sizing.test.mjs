@@ -26,13 +26,14 @@ test('resize bursts fit once per frame and publish the latest geometry without f
   for (let i = 0; i < 30; i++) f.sizer.schedule();
   assert.equal(f.frames.size, 1);
   f.paint();
-  assert.deepEqual(f.resized, [{ cols: 80, rows: 20 }]);
+  assert.deepEqual(f.resized, [], 'xterm retains the PTY geometry until publication');
   assert.deepEqual(f.sent, []);
   f.dimensions.cols = 60; f.sizer.schedule(); f.paint();
   f.dimensions.cols = 45; f.sizer.schedule(); f.paint();
   assert.equal(f.timers.size, 1);
   f.publish();
   assert.deepEqual(f.sent, [{ cols: 45, rows: 20 }]);
+  assert.deepEqual(f.resized, [{ cols: 45, rows: 20 }]);
   f.sizer.schedule(); f.paint(); f.publish();
   assert.equal(f.sent.length, 1, 'unchanged dimensions do not resend or reflow');
 });
@@ -42,11 +43,11 @@ test('hidden panes keep their buffer geometry and refit when revealed', () => {
   f.sizer.schedule(); f.paint();
   f.element.clientHeight = 0; f.sizer.schedule(); f.paint(); f.publish();
   assert.deepEqual(f.sent, [], 'a pending send is discarded when the pane becomes hidden');
-  assert.equal(f.terminal.rows, 20, 'hidden pane is not shrunk to a one-row terminal');
+  assert.equal(f.terminal.rows, 28, 'hidden pane retains the last published geometry');
   f.element.clientHeight = 400;
   f.sizer.schedule(); f.paint();
   assert.deepEqual(f.sent, [{ cols: 80, rows: 20 }]);
-  assert.deepEqual(f.refreshed, [[0, 19], [0, 19]]);
+  assert.deepEqual(f.refreshed, [[0, 19]]);
 });
 
 test('font readiness and session reconnect repaint and resend even at the same geometry', () => {
@@ -108,4 +109,32 @@ test('actual xterm buffer preserves completed Unicode lines while shrinking and 
   sizer.schedule({ force: true }); frame();
   assert.equal(terminal.cols, 120);
   assert.equal(bufferText(), text);
+});
+
+test('an alternate-screen frame cannot wrap into a size the PTY never received', async t => {
+  const terminal = new headless.Terminal({ cols: 80, rows: 20, allowProposedApi: true });
+  t.after(() => terminal.dispose());
+  const frames = [], timers = [], sent = [];
+  let dimensions = { cols: 80, rows: 20 };
+  const sizer = createTerminalSizer({ terminal: {
+    get cols() { return terminal.cols; }, get rows() { return terminal.rows; },
+    resize: (cols, rows) => terminal.resize(cols, rows), refresh() {},
+  }, fit: { proposeDimensions: () => dimensions }, element: { clientWidth: 800, clientHeight: 400 },
+  onResize: size => sent.push(size), requestFrame: callback => (frames.push(callback), frames.length),
+  cancelFrame() {}, setTimer: callback => (timers.push(callback), timers.length), clearTimer() {} });
+  t.after(() => sizer.dispose());
+  const paint = () => frames.shift()();
+  await new Promise(resolve => terminal.write('\x1b[?1049h', resolve));
+  sizer.schedule({ force: true }); paint();
+  dimensions = { cols: 40, rows: 20 };
+  sizer.schedule(); paint();
+  // The CLI still sees 80 columns while the resize timer is pending. Its next
+  // frame must be parsed with that same geometry, including alternate-screen.
+  const frame = 'A'.repeat(60) + 'RIGHT_EDGE';
+  await new Promise(resolve => terminal.write('\x1b[H' + frame, resolve));
+  dimensions = { cols: 80, rows: 20 };
+  sizer.schedule(); paint(); timers.shift()();
+  assert.deepEqual(sent, [{ cols: 80, rows: 20 }], 'the round trip needs no PTY resize');
+  assert.equal(terminal.buffer.active.getLine(0).translateToString(true), frame);
+  assert.equal(terminal.buffer.active.getLine(1).translateToString(true), '');
 });
