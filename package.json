@@ -7,6 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "setup": "node scripts/setup.mjs",
     "memory:install": "node scripts/install-memory.mjs",
     "dev": "node server/index.mjs --dev",
     "build": "vite build",
@@ -17,6 +18,7 @@
     "desktop:portable": "npm run build && npm run desktop:prepare && electron-builder --win portable --x64",
     "desktop:installer": "npm run build && npm run desktop:prepare && electron-builder --win nsis --x64",
     "check": "node scripts/check.mjs",
+    "check:layout": "node scripts/check-terminal-layout.cjs",
     "test": "node scripts/test.mjs all",
     "test:unit": "node scripts/test.mjs unit",
     "test:integration": "node scripts/test.mjs integration",

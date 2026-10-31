@@ -7,7 +7,7 @@ const version = '3.1.0';
 const platform = { win32: 'windows', linux: 'linux', darwin: 'macos' }[process.platform];
 const arch = { x64: 'x86_64', arm64: 'aarch64' }[process.arch];
 if (!platform || !arch || (platform === 'windows' && arch !== 'x86_64')) throw new Error('Plataforma não suportada pelo instalador. Configure ORQUESTRA_MEMORY_BIN.');
-const directory = path.resolve('.local/runtime/ai-memory');
+const directory = path.resolve(process.env.ORQUESTRA_MEMORY_INSTALL_DIR || '.local/runtime/ai-memory');
 await fs.mkdir(directory, { recursive: true });
 const name = `ai-memory-${platform}-${arch}.${platform === 'windows' ? 'zip' : 'tar.gz'}`;
 const base = `https://github.com/akitaonrails/ai-memory/releases/download/v${version}/`;
