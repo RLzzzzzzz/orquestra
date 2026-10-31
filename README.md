@@ -1,27 +1,27 @@
 # Orquestra
 
-Seus agentes de IA em um workspace local: terminais lado a lado, um coordenador que delega tarefas, memória compartilhada por projeto e revisão de código com worktrees opcionais.
+Your AI agents in one local workspace: side-by-side terminals, a coordinator that delegates tasks, shared memory for each project, and code review with optional Git worktrees.
 
-Este guia ensina a preparar o ambiente, conectar seus CLIs e executar a primeira delegação. Os comandos usam PowerShell no Windows; execute-os na pasta onde você baixou o Orquestra. `npm.cmd` evita problemas com a política de execução do PowerShell.
+This guide explains how to set up your environment, connect your CLIs, and run your first delegated task. Commands use PowerShell on Windows; run them from the folder where you downloaded Orquestra. Using `npm.cmd` avoids issues with PowerShell's execution policy.
 
-## 1. Escolha seu ponto de partida
+## 1. Choose your starting point
 
-### Já tenho os CLIs instalados e autenticados
+### I already have the CLIs installed and authenticated
 
-Feche o Orquestra e execute:
+Close Orquestra and run:
 
 ```powershell
 npm.cmd run setup
 npm.cmd start
 ```
 
-Abra **http://127.0.0.1:4317**. O setup detecta os CLIs presentes e cadastra os que ainda faltam no projeto. Suas contas, nomes de agentes, funções e worktrees existentes são preservados.
+Open **http://127.0.0.1:4317**. Setup detects your existing CLIs and registers any missing agents in the project. Your existing accounts, agent names, roles, and worktrees are preserved.
 
-Você também pode abrir `iniciar.cmd` com duplo clique: ele executa a mesma preparação e inicia o serviço. O login de cada fornecedor continua sendo feito por você.
+You can also double-click `iniciar.cmd`: it runs the same setup and starts the service. You still need to sign in to each provider yourself.
 
-### Estou preparando uma máquina nova
+### I'm setting up a new machine
 
-Instale [Node.js 22 ou superior](https://nodejs.org/en/download) e [Git for Windows](https://git-scm.com/downloads/win). Reabra o PowerShell e confira:
+Install [Node.js 22 or later](https://nodejs.org/en/download) and [Git for Windows](https://git-scm.com/downloads/win). Reopen PowerShell and verify:
 
 ```powershell
 node --version
@@ -29,71 +29,71 @@ npm.cmd --version
 git --version
 ```
 
-Baixe este repositório, extraia-o se necessário e abra um terminal nessa pasta. Para preparar o Orquestra e instalar os CLIs Codex, OpenCode e Gemini que ainda não estiverem presentes:
+Download this repository, extract it if necessary, and open a terminal in its folder. To set up Orquestra and install any missing Codex, OpenCode, and Gemini CLIs:
 
 ```powershell
 npm.cmd run setup -- --install-clis codex,opencode,gemini
 ```
 
-Depois, faça o login dos CLIs que pretende usar, conforme a seção 3. Você pode escolher apenas um ou dois: `--install-clis codex,opencode` também funciona. O setup termina sem abrir conversas nem consumir chamadas de modelo.
+Next, sign in to the CLIs you intend to use, as described in section 3. You can choose just one or two: `--install-clis codex,opencode` also works. Setup finishes without opening conversations or making model calls.
 
-### O que o comando automático faz
+### What automatic setup does
 
-1. Confere Node.js, a pasta do projeto e se o serviço está fechado.
-2. Instala as dependências pelo lockfile com `npm ci`, caso estejam ausentes.
-3. Instala somente os CLIs ausentes solicitados em `--install-clis`; novas instalações do OpenCode ficam na versão principal 1, compatível com o adaptador atual.
-4. Prepara o AI Memory oficial se não estiver instalado, conferindo SHA-256 do download; exige Git.
-5. Compila a interface.
-6. Cadastra o projeto e um agente para cada CLI detectado, sem duplicar os cadastros existentes.
+1. Checks Node.js, the project folder, and whether the service is stopped.
+2. Installs dependencies from the lockfile using `npm ci` if they are missing.
+3. Installs only the missing CLIs specified in `--install-clis`; new OpenCode installations are pinned to major version 1, which is compatible with the current adapter.
+4. Sets up the official AI Memory engine if it is not installed, verifying the download's SHA-256 hash; Git is required.
+5. Builds the interface.
+6. Registers the project and one agent for each detected CLI, without duplicating existing entries.
 
-Você continua responsável pelo login, acesso ao modelo e aprovações de confiança de cada fornecedor. A integração MCP e os hooks de memória são preparados pelo Orquestra ao abrir novas sessões pelo aplicativo; não é necessário adicionar manualmente um servidor MCP global.
+You remain responsible for provider sign-in, model access, and trust approvals. Orquestra prepares MCP integration and memory hooks when you open new sessions through the application; you do not need to manually configure a global MCP server.
 
-O setup padrão configura os dados usados por `npm start`, em `.local`. Para o desktop, veja a seção 9: ele usa outra pasta por padrão.
+The default setup configures the `.local` data directory used by `npm start`. For the desktop app, see section 9: it uses a different directory by default.
 
-## 2. Configure a pasta em que os agentes vão trabalhar
+## 2. Configure the folder your agents will work in
 
-Se seu código está em outra pasta, configure-a antes de iniciar:
+If your code is in another folder, configure it before starting:
 
 ```powershell
 npm.cmd run setup -- --project-dir "C:\Projetos\Minha aplicação"
 npm.cmd start
 ```
 
-O diretório precisa existir. O comando encontra projetos cadastrados pela pasta real e adiciona somente os agentes que faltam. Também é possível clicar em **Novo projeto**, informar o nome e selecionar a pasta na interface.
+The directory must already exist. Setup identifies registered projects by their actual folder paths and only adds missing agents. You can also click **Novo projeto** (New project), enter a name, and select a folder in the interface.
 
-Para conferir o ambiente sem instalar, cadastrar ou abrir modelos:
+To check the environment without installing packages, registering agents, or starting models:
 
 ```powershell
 npm.cmd run setup -- --check
 ```
 
-O diagnóstico informa dependências, CLIs, Git, executável de memória e build. **CLI detectado** significa que o comando foi encontrado; isso não comprova login ou disponibilidade do modelo.
+The diagnostic reports dependencies, CLIs, Git, the memory executable, and the build. **CLI detected** only means the command was found; it does not confirm successful authentication or model availability.
 
-Outras opções:
+Other options:
 
-| Comando/opção | Quando usar |
+| Command/option | When to use it |
 | --- | --- |
-| `npm.cmd run setup -- --help` | Consultar todas as opções. |
-| `--install-clis codex,opencode,gemini` | Instalar CLIs ausentes desses três fornecedores. Não atualiza/reinstala comandos encontrados. |
-| `--skip-memory` | Preparar a aplicação sem instalar/verificar o engine; memória e captura exigirão configuração posterior. |
-| `--data-dir "C:\Dados\Orquestra"` | Preparar outra pasta de dados. Ao iniciar, defina `ORQUESTRA_DATA_DIR` com o mesmo caminho. |
+| `npm.cmd run setup -- --help` | Display all available options. |
+| `--install-clis codex,opencode,gemini` | Install missing CLIs from these three providers. Does not update or reinstall commands already found. |
+| `--skip-memory` | Set up the application without installing or checking the memory engine; memory and capture must be configured later. |
+| `--data-dir "C:\Dados\Orquestra"` | Configure a different data directory. Set `ORQUESTRA_DATA_DIR` to the same path when starting the application. |
 
-O setup não troca configurações de modelo, não redefine senhas e não remove agentes anteriores. Feche servidores e o desktop antes de executá-lo para evitar que dois processos gravem os mesmos dados.
+Setup does not change model settings, reset passwords, or remove existing agents. Close running servers and the desktop app before running it to prevent two processes from writing to the same data.
 
-## 3. Instale e autentique seus CLIs
+## 3. Install and authenticate your CLIs
 
-Execute apenas os comandos dos provedores que deseja usar. Se eles já funcionam no seu terminal, mantenha a instalação e o login existentes.
+Run only the commands for providers you want to use. If a CLI already works in your terminal, keep its existing installation and authentication.
 
 ### Codex
 
-O setup pode instalar o pacote oficial. Para instalar separadamente:
+Setup can install the official package. To install it separately:
 
 ```powershell
 npm.cmd install -g @openai/codex
 codex
 ```
 
-Na primeira abertura, escolha o método de login oferecido e conclua o fluxo no navegador. O Orquestra usará essa autenticação nas sessões iniciadas pelo mesmo usuário do Windows. Consulte [Codex CLI](https://developers.openai.com/codex/cli/) e [autenticação oficial](https://developers.openai.com/codex/auth/).
+On first launch, select an available sign-in method and complete the browser authentication flow. Orquestra uses that authentication for sessions started under the same Windows user. See the [Codex CLI documentation](https://developers.openai.com/codex/cli/) and [official authentication guide](https://developers.openai.com/codex/auth/).
 
 ### OpenCode
 
@@ -102,17 +102,17 @@ npm.cmd install -g opencode-ai@1
 opencode
 ```
 
-Dentro do OpenCode, use `/connect`, escolha seu provedor e siga a autenticação oferecida. Cada provedor pode exigir conta ou chave própria. Esta integração usa o contrato do OpenCode 1; por isso, o comando e o setup fixam novas instalações em `opencode-ai@1`. O OpenCode 2 compartilha o comando `opencode` e precisa de validação de compatibilidade antes de uma migração. Uma instalação existente é preservada pelo setup, sem downgrade automático. Consulte a [instalação e configuração oficiais](https://opencode.ai/docs/).
+In OpenCode, use `/connect`, select your provider, and follow its authentication flow. Each provider may require its own account or API key. This integration uses the OpenCode 1 contract, so the command and setup pin new installations to `opencode-ai@1`. OpenCode 2 uses the same `opencode` command and requires compatibility testing before migration. Setup preserves existing installations without automatically downgrading them. See the [official installation and configuration documentation](https://opencode.ai/docs/).
 
 ### Claude Code
 
-O setup reconhece o Claude instalado. Ele não está na lista de instalação automática; instale-o conforme o [guia oficial para Windows](https://code.claude.com/docs/en/setup) e então execute:
+Setup detects an installed Claude CLI. It is not included in automatic installation; install it using the [official Windows setup guide](https://code.claude.com/docs/en/setup), then run:
 
 ```powershell
 claude
 ```
 
-Conclua o login solicitado. Veja também o [primeiro acesso ao Claude Code](https://code.claude.com/docs/en/quickstart). Depois, feche o Orquestra e repita `npm.cmd run setup` para cadastrá-lo.
+Complete the requested sign-in. See also the [Claude Code quickstart](https://code.claude.com/docs/en/quickstart). Then close Orquestra and run `npm.cmd run setup` again to register it.
 
 ### Gemini CLI
 
@@ -121,150 +121,150 @@ npm.cmd install -g @google/gemini-cli
 gemini
 ```
 
-Selecione a autenticação oferecida, como **Login with Google**, e conclua-a. O Gemini funciona como terminal manual com captura de memória; não é executor gerenciado nesta versão. [Guia oficial do Gemini CLI](https://google-gemini.github.io/gemini-cli/docs/get-started/).
+Choose an available authentication method, such as **Login with Google**, and complete the process. Gemini works as a manual terminal with memory capture; it is not a managed task executor in this version. See the [official Gemini CLI guide](https://google-gemini.github.io/gemini-cli/docs/get-started/).
 
-### Antigravity, Hermes, Freebuff e comandos personalizados
+### Antigravity, Hermes, Freebuff, and custom commands
 
-Instale-os pelos canais oficiais de seus fornecedores e faça o login no próprio CLI. Os comandos procurados são `agy`, `hermes` e `freebuff`. Antigravity aqui significa o **CLI `agy`**, não um atalho para abrir o editor. No Windows, o aplicativo também procura os locais de instalação conhecidos de `agy` e `hermes` em `%LOCALAPPDATA%`.
+Install these through their providers' official channels and sign in using their CLIs. Orquestra looks for the `agy`, `hermes`, and `freebuff` commands. Here, Antigravity means the **`agy` CLI**, not a shortcut that opens the editor. On Windows, the application also searches known `agy` and `hermes` installation locations under `%LOCALAPPDATA%`.
 
-Repita o setup após instalar ou ajustar o PATH e reinicie o Orquestra. Para qualquer outro CLI, clique em **Novo agente → Personalizado** e informe o comando. Um comando personalizado oferece um terminal, mas não ganha automaticamente as ferramentas de delegação e memória.
+After installing a CLI or updating your PATH, run setup again and restart Orquestra. For any other CLI, click **Novo agente → Personalizado** (New agent → Custom) and enter the command. A custom command provides a terminal but does not automatically gain delegation and memory tools.
 
-### O que cada CLI pode fazer no aplicativo
+### What each CLI can do in the application
 
-| CLI | Terminal manual | Coordenador | Executor de tarefa delegada | Captura nativa de memória |
+| CLI | Manual terminal | Coordinator | Delegated task executor | Native memory capture |
 | --- | --- | --- | --- | --- |
-| Codex | Sim | Sim | Sim | Sim, após aprovar hooks no CLI |
-| OpenCode | Sim | Sim | Sim | Sim |
-| Claude Code | Sim | Sim | Sim | Sim, com hooks configurados |
-| Freebuff | Sim | Sim | Não | Não |
-| Gemini | Sim | Não | Não | Sim |
-| Antigravity (`agy`) | Sim | Não | Não | Sim |
-| Hermes | Sim | Não | Não | Sim |
-| Terminal / personalizado | Sim | Não | Não | Não |
+| Codex | Yes | Yes | Yes | Yes, after approving hooks in the CLI |
+| OpenCode | Yes | Yes | Yes | Yes |
+| Claude Code | Yes | Yes | Yes | Yes, with hooks configured |
+| Freebuff | Yes | Yes | No | No |
+| Gemini | Yes | No | No | Yes |
+| Antigravity (`agy`) | Yes | No | No | Yes |
+| Hermes | Yes | No | No | Yes |
+| Terminal / custom | Yes | No | No | No |
 
-Configuração de captura não comprova que um evento já foi recebido. Sessões devem ser abertas pelo Orquestra; sessões antigas precisam ser reabertas para carregar integrações novas. A disponibilidade e aprovação dos hooks dependem da versão do CLI.
+Having capture configured does not prove an event has been received. Sessions must be opened through Orquestra; older sessions must be reopened to load new integrations. Hook availability and approval depend on the CLI version.
 
-## 4. Abra os terminais
+## 4. Open the terminals
 
-1. Execute `npm.cmd start` e mantenha essa janela aberta.
-2. Abra **http://127.0.0.1:4317** e selecione o projeto na lateral.
-3. Os agentes detectados pelo setup aparecem no projeto. Clique em **Iniciar** no painel de cada agente.
-4. Para adicionar outra sessão, clique em **Novo agente**, escolha o CLI, o nome e a pasta. Clique para iniciar.
-5. Se houver pedido de login, confiança ou aprovação, resolva no terminal correspondente.
+1. Run `npm.cmd start` and leave that window open.
+2. Open **http://127.0.0.1:4317** and select your project in the sidebar.
+3. Agents detected during setup appear in the project. Click **Iniciar** (Start) on each agent panel.
+4. To add another session, click **Novo agente** (New agent), choose the CLI, name, and folder, then start it.
+5. If prompted to sign in, trust a tool, or approve an action, complete that step in the corresponding terminal.
 
-O terminal mostra a saída real do processo. Você pode digitar diretamente nele ou usar o campo de mensagem do painel. **Enter** envia a mensagem; **Shift+Enter** insere uma nova linha. A Central de tarefas à direita insere mensagens nos terminais selecionados; ela não cria uma delegação acompanhada pela fila.
+The terminal displays the process's actual output. You can type directly into it or use the panel's message field. **Enter** sends the message; **Shift+Enter** inserts a newline. The task center on the right sends messages to selected terminals; it does not create a tracked task in the delegation queue.
 
-Use os botões de layout para uma coluna, duas colunas ou grade. O botão de foco amplia um terminal; sair do foco restaura os demais. A alça de pontos permite trocar painéis de posição. Arraste o canto do painel para ajustar seu tamanho; dê duplo clique para restaurar o tamanho automático. Fonte e tema ficam nas preferências.
+Use the layout controls to switch between one column, two columns, or a grid. Focus mode enlarges one terminal; leaving focus restores the others. Use the dotted handle to reorder panels. Drag a panel's corner to resize it, or double-click to restore automatic sizing. Font and theme settings are available in preferences.
 
-Em áreas estreitas, a aplicação reduz automaticamente o número de colunas. Tamanhos manuais ficam limitados à área disponível; ao trocar de aba, foco ou tamanho da janela, os terminais reajustam sua geometria.
+On narrower screens, the application automatically reduces the number of columns. Manual sizes are constrained by the available space; when switching tabs, changing focus, or resizing the window, terminal geometry readjusts.
 
-Se o CLI encerrar, o Orquestra pode disponibilizar um shell de recuperação. Esse shell permite diagnóstico, mas não recebe tarefas delegadas; use **Reiniciar agente** para reabrir o CLI.
+If a CLI exits, Orquestra may provide a recovery shell. This shell supports diagnostics but cannot receive delegated tasks; use **Reiniciar agente** (Restart agent) to reopen the CLI.
 
-## 5. Faça a primeira delegação
+## 5. Run your first delegated task
 
-Comece com uma tarefa pequena de leitura para verificar o fluxo.
+Start with a small read-only task to test the workflow.
 
-1. Abra pelo menos um executor Codex, OpenCode ou Claude no projeto.
-2. Abra **Orquestração**, escolha quem coordena e clique em **Abrir coordenador**. Isso cria uma sessão separada do executor.
-3. No terminal do coordenador, envie, por exemplo:
+1. Open at least one Codex, OpenCode, or Claude executor in the project.
+2. Open **Orquestração** (Orchestration), select the coordinator, and click **Abrir coordenador** (Open coordinator). This creates a session separate from the executor.
+3. In the coordinator's terminal, send something like:
 
-   > Liste os executores disponíveis. Delegue ao OpenCode a leitura do README, sem alterar arquivos. Aguarde a conclusão e resuma o que ele encontrou.
+   > List the available executors. Delegate a read-only review of the README to OpenCode. Wait for completion and summarize its findings.
 
-4. A tarefa aparece em **Orquestração → Tarefas delegadas**; a conversa do executor continua visível em **Terminais**.
-5. O executor confirma recebimento e chama `concluir_tarefa` pelo MCP ao terminar. O coordenador consulta o resultado e devolve a resposta.
+4. The task appears under **Orquestração → Tarefas delegadas** (Orchestration → Delegated tasks); the executor's conversation remains visible under **Terminais** (Terminals).
+5. The executor acknowledges receipt and calls `concluir_tarefa` through MCP when finished. The coordinator retrieves the result and responds.
 
-Um executor só fica disponível após abrir o terminal e inicializar a integração MCP. **Em execução** no terminal não significa, por si só, que ele está pronto para delegação. Se o contador de executores continuar zerado, confira login, confiança no MCP e erros de inicialização do CLI.
+An executor only becomes available after its terminal opens and MCP integration initializes. A terminal marked **Em execução** (Running) is not necessarily ready for delegation. If the available executor count remains zero, check authentication, MCP trust approval, and CLI startup errors.
 
-Você também pode clicar em **Delegar diretamente** para criar uma tarefa na fila sem pedir ao coordenador. As tarefas que usam pastas iguais ou sobrepostas rodam em sequência; até três tarefas em pastas distintas podem executar em paralelo. Instruções digitadas manualmente não passam por esse bloqueio: evite editar os mesmos arquivos em duas sessões.
+You can also click **Delegar diretamente** (Delegate directly) to enqueue a task without asking the coordinator. Tasks using identical or overlapping folders run sequentially; up to three tasks in different folders can run in parallel. Manually typed instructions do not follow this locking mechanism, so avoid editing the same files from two sessions.
 
-Cancelar uma tarefa encerra o terminal executor para interromper o trabalho antes de liberar a pasta. Reabra-o para continuar. Ao reiniciar o serviço, tarefas ativas ficam interrompidas e não são reenviadas automaticamente.
+Canceling a task closes the executor's terminal to stop the work before releasing the folder. Reopen it to continue. When the service restarts, active tasks are marked as interrupted and are not automatically resubmitted.
 
-## 6. Use a memória compartilhada
+## 6. Use shared memory
 
-O AI Memory reúne decisões, aprendizados e resultados **somente do projeto selecionado**. Ele usa o engine local [akitaonrails/ai-memory 3.1.0](https://github.com/akitaonrails/ai-memory), com notas Markdown, histórico Git e índice de busca. O armazenamento e a busca padrão não exigem chave de API.
+AI Memory collects decisions, lessons learned, and results **only for the selected project**. It uses the local [akitaonrails/ai-memory 3.1.0](https://github.com/akitaonrails/ai-memory) engine, with Markdown notes, Git history, and a search index. Basic storage and search do not require an API key.
 
-1. Abra **Memória** e aguarde o indicador **AI Memory conectado · local**.
-2. Clique em **Nova memória**, escreva a nota e salve.
-3. Busque pelo assunto; selecione uma página para ler, editar ou excluir.
-4. Peça ao agente: “Consulte `buscar_memoria` e `resumo_memoria` do MCP Orquestra antes de trabalhar; salve as decisões importantes com `salvar_memoria`”.
+1. Open **Memória** (Memory) and wait for **AI Memory conectado · local** (AI Memory connected · local).
+2. Click **Nova memória** (New memory), write a note, and save it.
+3. Search by topic; select a page to read, edit, or delete it.
+4. Ask an agent: “Use `buscar_memoria` and `resumo_memoria` from Orquestra MCP before starting; save important decisions with `salvar_memoria`.”
 
-Ao delegar, o serviço consulta contexto relacionado e envia um trecho limitado ao executor. Instrução e resultado da tarefa são registrados automaticamente. Se uma execução concluir e a gravação falhar, o resultado continua no histórico e o erro de memória aparece na tarefa.
+When delegating a task, the service retrieves related context and sends a limited excerpt to the executor. The task instructions and results are recorded automatically. If task execution succeeds but the memory write fails, the result remains in the task history and the memory error is shown on the task.
 
-Para passar trabalho a outra sessão, peça que o agente use `criar_handoff`. Na interface, aceite a passagem de contexto e encaminhe o resumo ao agente que continuará. Cada handoff é aceito uma única vez.
+To hand work over to another session, ask the agent to use `criar_handoff`. In the interface, accept the handoff and forward its summary to the next agent. Each handoff can only be accepted once.
 
-No Codex, abra `/hooks` e revise/aprove os hooks do AI Memory no próprio CLI. Freebuff, terminal e comandos personalizados não têm captura nativa. Sessões abertas fora do Orquestra não recebem automaticamente esta integração. Consolidação com modelo e embeddings são opções do engine, separadas do armazenamento básico.
+For Codex, open `/hooks` and review/approve the AI Memory hooks within the CLI. Freebuff, terminals, and custom commands do not support native memory capture. Sessions started outside Orquestra do not automatically receive this integration. Model-based consolidation and embeddings are optional engine features, separate from basic storage.
 
-Se precisar selecionar outro executável:
+To select a different executable:
 
 ```powershell
 $env:ORQUESTRA_MEMORY_BIN = "C:\Ferramentas\ai-memory.exe"
 npm.cmd start
 ```
 
-## 7. Organize tarefas, branches e revisão
+## 7. Organize tasks, branches, and reviews
 
-Na aba **Tarefas**, crie itens de planejamento e altere seus estados. Os cartões de planejamento e as execuções delegadas têm ciclos distintos; mudar um cartão não envia uma instrução ao CLI.
+In the **Tarefas** (Tasks) tab, create planning items and update their statuses. Planning cards and delegated executions have separate lifecycles; changing a card does not send instructions to a CLI.
 
-Para trabalhar em branches isoladas, abra **Orquestração → Worktrees e revisão cruzada · opções avançadas**:
+To work in isolated branches, open **Orquestração → Worktrees e revisão cruzada · opções avançadas** (Orchestration → Worktrees and cross-review · advanced options):
 
-1. Adicione `.orquestra-worktrees/` ao `.gitignore` do projeto e tenha pelo menos um commit no Git.
-2. Encerre o terminal do implementador e prepare sua worktree.
-3. Reabra o terminal; ele passará a trabalhar na branch/pasta isolada.
-4. Abra ao menos dois executores e escolha implementador e revisor distintos. O revisor também pode atuar como testador.
-5. Envie o objetivo da revisão. Consulte os relatórios e encaminhe correções quando necessário.
-6. Execute a validação local pela interface. A aprovação final exige verificações reais do projeto; a declaração de um agente não basta.
+1. Add `.orquestra-worktrees/` to the project's `.gitignore` and make sure the Git repository has at least one commit.
+2. Stop the implementer's terminal and prepare its worktree.
+3. Reopen the terminal; it will now work in the isolated branch and folder.
+4. Open at least two executors and choose different agents as implementer and reviewer. The reviewer can also act as the tester.
+5. Submit the review objective. Inspect the reports and request fixes as needed.
+6. Run local validation through the interface. Final approval requires actual project checks; an agent's statement alone is not sufficient.
 
-Alterações sem commit na pasta original não são copiadas para uma nova worktree. Revise o diff antes de autorizar commits. Commits automáticos precisam ser habilitados por agente. Push, merge e remoção de worktrees não são automatizados.
+Uncommitted changes in the original folder are not copied into a new worktree. Review the diff before authorizing commits. Automatic commits must be enabled for each agent. Pushes, merges, and worktree removal are not automated.
 
-## 8. Resolva problemas comuns
+## 8. Troubleshoot common issues
 
-| Sintoma | Como resolver |
+| Symptom | Solution |
 | --- | --- |
-| `node` ou `npm.cmd` não encontrado | Instale Node.js 22+ e reabra o terminal. |
-| CLI não aparece | Confirme o comando com `Get-Command codex` (ou o nome correspondente), ajuste o PATH, feche o Orquestra e repita o setup. |
-| CLI encontrado, mas pede login | Abra o próprio CLI e conclua a autenticação. Detecção não valida conta. |
-| Porta 4317 ocupada / setup pede para fechar | Feche a outra janela/serviço do Orquestra, incluindo o desktop. Não rode dois servidores sobre os mesmos dados. |
-| Zero executores disponíveis | Abra um Codex/OpenCode/Claude e aguarde MCP; confira confiança, login e saída do terminal. |
-| Tarefa aguardando confirmação | Confira se o executor recebeu a instrução e consegue chamar `confirmar_recebimento`. Resolva aprovações no terminal. |
-| Memória indisponível | Confira Git, rode `npm.cmd run setup -- --check`; com o serviço fechado, repita `npm.cmd run setup`. Verifique `ORQUESTRA_MEMORY_BIN` se definido. |
-| Terminal ficou pequeno após arrastar | Dê duplo clique na alça de redimensionamento para voltar ao tamanho automático; use foco para ampliar a área de trabalho. |
-| Desktop não mostra os projetos do navegador | As pastas de dados são diferentes por padrão; siga a seção 9. |
-| Instalação do `node-pty` falha | Confira Node.js e arquitetura; se a instalação exigir compilação, instale Python e Visual Studio Build Tools com C++. |
+| `node` or `npm.cmd` not found | Install Node.js 22+ and reopen the terminal. |
+| CLI does not appear | Check the command with `Get-Command codex` (or the corresponding name), update PATH, close Orquestra, and rerun setup. |
+| CLI is detected but asks for sign-in | Launch the CLI itself and authenticate. Detection does not verify account access. |
+| Port 4317 is in use / setup asks you to close the app | Close the other Orquestra window or service, including the desktop app. Do not run two servers against the same data. |
+| Zero available executors | Open Codex/OpenCode/Claude and wait for MCP initialization; check trust, authentication, and terminal output. |
+| Task is waiting for acknowledgment | Confirm the executor received the instructions and can call `confirmar_recebimento`. Resolve approvals in the terminal. |
+| Memory unavailable | Check Git and run `npm.cmd run setup -- --check`; with the service stopped, rerun `npm.cmd run setup`. Check `ORQUESTRA_MEMORY_BIN` if set. |
+| Terminal became too small after dragging | Double-click the resize handle to restore automatic sizing; use focus mode to expand the workspace. |
+| Desktop app does not show browser projects | Their data directories differ by default; see section 9. |
+| `node-pty` installation fails | Check Node.js and system architecture; if compilation is required, install Python and Visual Studio Build Tools with C++. |
 
-Para usar outra porta na mesma sessão do PowerShell:
+To use a different port in the current PowerShell session:
 
 ```powershell
 $env:PORT = "4320"
 npm.cmd start
 ```
 
-Abra `http://127.0.0.1:4320`. A aplicação escuta somente em `127.0.0.1`; mantenha o serviço local.
+Open `http://127.0.0.1:4320`. The application only listens on `127.0.0.1`; keep the service local.
 
-## 9. Use ou gere o aplicativo desktop
+## 9. Run or build the desktop application
 
-Com o ambiente preparado pelo setup:
+With the environment prepared by setup:
 
 ```powershell
 npm.cmd run desktop
 ```
 
-O desktop usa `%APPDATA%\Orquestra\data`; `npm start` usa `.local` na pasta do repositório. Para abrir o desktop de desenvolvimento com os dados que você acabou de configurar:
+The desktop app uses `%APPDATA%\Orquestra\data`; `npm start` uses `.local` in the repository folder. To start the development desktop app with the data you just configured:
 
 ```powershell
 $env:ORQUESTRA_DATA_DIR = (Resolve-Path .local).Path
 npm.cmd run desktop
 ```
 
-Feche o servidor do navegador antes de abrir o desktop. Outra opção é configurar diretamente a pasta padrão do desktop:
+Stop the browser server before opening the desktop app. Alternatively, configure the desktop app's default data directory directly:
 
 ```powershell
 npm.cmd run setup -- --data-dir "$env:APPDATA\Orquestra\data"
 npm.cmd run desktop
 ```
 
-O projeto configurado aparece nessa pasta; o setup não migra dados entre perfis. Para uma migração manual, feche todas as instâncias, faça backup e copie o conteúdo da pasta de dados para o destino escolhido.
+The configured project appears in that data directory; setup does not migrate data between profiles. To migrate manually, close all instances, back up the data, and copy the contents of the data directory to the chosen destination.
 
-Para distribuir no Windows x64:
+To package for Windows x64:
 
 ```powershell
 npm.cmd run desktop:pack
@@ -272,49 +272,49 @@ npm.cmd run desktop:portable
 npm.cmd run desktop:installer
 ```
 
-Use somente o formato necessário. Saídas em `release/`: pasta `win-unpacked`, portátil `Orquestra-0.1.1-x64-portable.exe` e instalador `Orquestra-0.1.1-x64-nsis.exe`. A versão acompanha `package.json`. O pacote inclui runtime Node.js e dependências do backend; CLIs, suas contas e Git continuam sendo instalados pelo usuário. O AI Memory é incluído se estiver no runtime local padrão durante o empacotamento. Dados de projetos, credenciais e histórico não entram no pacote. Os executáveis não têm assinatura digital configurada.
+Use only the distribution format you need. Outputs are written to `release/`: the `win-unpacked` folder, portable `Orquestra-0.1.1-x64-portable.exe`, and installer `Orquestra-0.1.1-x64-nsis.exe`. The version follows `package.json`. The package includes the Node.js runtime and backend dependencies; users still need to install Git and their CLIs and configure their accounts. AI Memory is bundled if it exists in the default local runtime during packaging. Project data, credentials, and history are not bundled. The executables are not configured with digital signatures.
 
-### Atualize o executável depois de alterar o código
+### Update the executable after changing the code
 
-1. Feche o Orquestra, incluindo janelas do desktop e servidores abertos pelo terminal. As sessões dos CLIs serão encerradas; finalize ou guarde o contexto antes.
-2. Na pasta do repositório, execute `npm.cmd ci` se o `package-lock.json` ou as dependências tiverem mudado.
-3. Gere novamente o formato que você utiliza:
+1. Close Orquestra, including desktop windows and terminal-launched servers. CLI sessions will be terminated; finish your work or save the context first.
+2. In the repository folder, run `npm.cmd ci` if `package-lock.json` or dependencies have changed.
+3. Rebuild the distribution format you use:
 
    ```powershell
-   # Portátil: já compila a interface e prepara o backend atualizado.
+   # Portable: also builds the interface and prepares the updated backend.
    npm.cmd run desktop:portable
 
-   # Alternativa para a versão instalada:
+   # Alternative for the installed version:
    npm.cmd run desktop:installer
    ```
 
-4. No modo portátil, copie o novo `.exe` de `release/` para o local onde você costuma abri-lo e atualize o atalho para esse arquivo. No modo instalado, execute o novo instalador e use o mesmo usuário/pasta da instalação anterior.
-5. Reabra o aplicativo e confira a versão no rodapé da barra de projetos. Esta correção é a **0.1.1**. Reabra os terminais para que recebam o backend novo; uma sessão antiga não troca de transporte enquanto está em execução.
+4. For the portable version, copy the new `.exe` from `release/` to your usual location and update the shortcut. For the installed version, run the new installer under the same Windows user and installation directory.
+5. Reopen the application and check the version at the bottom of the project sidebar. This fix is version **0.1.1**. Reopen the terminals to load the new backend; an existing session does not switch transports while running.
 
-O build e o executável não substituem `%APPDATA%\Orquestra\data` nem a pasta definida em `ORQUESTRA_DATA_DIR`. Preserve essa pasta para manter seus projetos, histórico e memória. Compilar apenas com `npm.cmd run build` atualiza a interface do código-fonte; isso não modifica um `.exe` gerado anteriormente.
+The build and executable do not replace `%APPDATA%\Orquestra\data` or the directory specified by `ORQUESTRA_DATA_DIR`. Preserve this directory to keep your projects, history, and memory. Running only `npm.cmd run build` updates the source-based interface; it does not modify an already generated `.exe`.
 
-Para usar a versão atualizada pelo código-fonte, execute `npm.cmd run build` e então `npm.cmd start` ou `npm.cmd run desktop`. No navegador, recarregue a página após reiniciar o servidor.
+To use the updated source version, run `npm.cmd run build` followed by `npm.cmd start` or `npm.cmd run desktop`. In the browser, reload the page after restarting the server.
 
-## 10. Dados, atualização e desenvolvimento
+## 10. Data, updates, and development
 
-| Dado | Pelo código-fonte | Desktop padrão |
+| Data | Source-based installation | Default desktop app |
 | --- | --- | --- |
-| Projetos e agentes | `.local/workspace.json` | `%APPDATA%\Orquestra\data\workspace.json` |
-| Histórico de tarefas | `.local/tasks.json` | Dentro da pasta `data` |
-| Wiki e índice | `.local/memory/wiki` e `.local/memory/db` | Dentro de `data\memory` |
-| Preferências visuais | Armazenamento do navegador | Perfil Electron |
-| Log do servidor desktop | — | `%APPDATA%\Orquestra\server.log` |
+| Projects and agents | `.local/workspace.json` | `%APPDATA%\Orquestra\data\workspace.json` |
+| Task history | `.local/tasks.json` | Inside the `data` directory |
+| Wiki and index | `.local/memory/wiki` and `.local/memory/db` | Inside `data\memory` |
+| Visual preferences | Browser storage | Electron profile |
+| Desktop server log | — | `%APPDATA%\Orquestra\server.log` |
 
-`ORQUESTRA_DATA_DIR` altera a pasta de dados. O setup não altera permanentemente essa variável; mantenha o mesmo valor ao iniciar por `npm start`. Guarde uma cópia de segurança antes de migrar ou restaurar dados. Reiniciar o serviço encerra os terminais, preservando projetos e histórico persistidos.
+`ORQUESTRA_DATA_DIR` changes the data directory. Setup does not permanently set this environment variable; use the same value when starting with `npm start`. Back up your data before migrating or restoring it. Restarting the service closes the terminals but preserves stored projects and history.
 
-Para atualizar dependências após mudar o código/lockfile, com a aplicação fechada:
+To update dependencies after changing the code or lockfile, with the application closed:
 
 ```powershell
 npm.cmd ci
 npm.cmd run setup
 ```
 
-Para desenvolver e validar:
+For development and validation:
 
 ```powershell
 npm.cmd run dev
@@ -324,18 +324,16 @@ npm.cmd run build
 npm.cmd run check:layout
 ```
 
-Os testes automatizados usam fixtures, sem autenticar contas ou chamar modelos. Scripts `check-live-*` e algumas verificações de provedores podem iniciar sessões reais: leia o script antes de executá-lo.
+Automated tests use fixtures without authenticating accounts or calling models. `check-live-*` scripts and some provider checks may start real sessions: read each script before running it.
 
-`check:layout` exige o build e abre um renderer Electron oculto com dados temporários e terminais de teste. Ele verifica 45 cenários de tamanho, layout, foco e fonte, sem alterar seus projetos ou chamar modelos. A captura de referência fica em `coverage/terminal-layout.png`.
+`check:layout` requires a build and opens a hidden Electron renderer with temporary data and test terminals. It tests 45 scenarios covering sizing, layouts, focus, and fonts without changing your projects or calling models. The reference screenshot is saved to `coverage/terminal-layout.png`.
 
-Para verificar especificamente o redraw da interface nativa do OpenCode instalado, execute `npm.cmd run check:opencode-resize` após o build. Essa verificação abre uma sessão isolada, muda a janela, confere prompt/rodapé/centralização e exige que o mesmo processo continue ativo. Não envia instruções ao modelo. Resultados e capturas ficam em `coverage/opencode-resize/`.
+To specifically test native OpenCode UI redraw behavior, run `npm.cmd run check:opencode-resize` after building. This check opens an isolated session, resizes the window, verifies the prompt/footer/centering, and requires the same process to remain running. It does not send model instructions. Results and screenshots are saved under `coverage/opencode-resize/`.
 
-Depois de empacotar, `npm.cmd run check:opencode-resize -- --packaged` repete a verificação usando o backend, a interface e o `node.exe` de `release/win-unpacked/resources/backend`.
+After packaging, `npm.cmd run check:opencode-resize -- --packaged` repeats the check using the backend, interface, and `node.exe` from `release/win-unpacked/resources/backend`.
 
-Estrutura: `src/` contém a interface; `server/`, os terminais, MCP, fila e memória; `scripts/`, preparação e verificações; `tests/`, regressões; `electron/`, o desktop.
+Project structure: `src/` contains the interface; `server/` handles terminals, MCP, the task queue, and memory; `scripts/` contains setup and validation tools; `tests/` contains regression tests; and `electron/` contains the desktop application.
 
-Para detalhes técnicos, consulte [contrato de sessões e delegação](docs/core-estabilizacao.md), [CI, worktrees e revisão](docs/ci-worktrees-revisao.md) e [auditoria de memória e delegação](docs/auditoria-estabilizacao-2026-10-30.md). A interface e os fluxos usam [Alethe Agents](https://github.com/Kc1t/alethe-agents) e [Orca](https://github.com/stablyai/orca) como referências de produto, com implementação independente. Dependências e avisos estão em [THIRD_PARTY.md](THIRD_PARTY.md).
-
+For technical details, see the [session and delegation contract](docs/core-estabilizacao.md), [CI, worktrees, and review](docs/ci-worktrees-revisao.md), and [memory and delegation audit](docs/auditoria-estabilizacao-2026-10-30.md). The interface and workflows draw product inspiration from [Alethe Agents](https://github.com/Kc1t/alethe-agents) and [Orca](https://github.com/stablyai/orca), with an independent implementation. Dependencies and notices are listed in [THIRD_PARTY.md](THIRD_PARTY.md).
 
 [![GitHub](https://img.shields.io/badge/GitHub-RLzzzzzzz-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/RLzzzzzzz)
-
