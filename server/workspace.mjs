@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import crossSpawn from 'cross-spawn';
 import { randomUUID } from 'node:crypto';
 import { saveJson } from './persistence.mjs';
 
@@ -68,6 +69,36 @@ export function commandCanStart(command, env = process.env, platform = process.p
     timeout: 15000,
   });
   return !result.error && !result.signal && result.status === 0;
+}
+
+// Provider discovery runs while PTYs and receipt timers are active. A version
+// probe must never block their event loop while a CLI loads its runtime.
+export async function commandCanStartAsync(command, env = process.env, platform = process.platform, starter = crossSpawn, timeoutMs = 15000) {
+  const file = findCommand(command, env, platform);
+  if (!file) return false;
+  return new Promise(resolve => {
+    let child, timer, settled = false;
+    const finish = result => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    try {
+      // cross-spawn preserves quoted paths and handles .cmd wrappers on Windows.
+      child = starter(file, ['--version'], { env, windowsHide: true, stdio: 'ignore' });
+      child.once('error', () => finish(false));
+      child.once('close', (code, signal) => finish(code === 0 && !signal));
+      timer = setTimeout(() => {
+        finish(false);
+        if (platform === 'win32' && child.pid) {
+          const killer = crossSpawn('taskkill.exe', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true, stdio: 'ignore' });
+          killer.once('error', () => child.kill());
+          killer.once('exit', code => { if (code) child.kill(); });
+        } else child.kill();
+      }, timeoutMs);
+    } catch { finish(false); }
+  });
 }
 
 export class Workspace {

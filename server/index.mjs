@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
-import { Workspace, providers, findCommand, commandCanStart } from './workspace.mjs';
+import { Workspace, providers, findCommand, commandCanStartAsync } from './workspace.mjs';
 import { Terminals } from './terminals.mjs';
 import { TaskManager } from './task-manager.mjs';
 import { Orchestration, coordinatorProviders } from './orchestration.mjs';
@@ -90,7 +90,8 @@ const server = http.createServer(async (req, res) => {
     try {
       if (req.method === 'GET' && pathname === '/api/state') return json(res, 200, snapshot());
       if (req.method === 'GET' && pathname === '/api/providers') {
-        return json(res, 200, providers.map(p => ({ ...p, coordinator: coordinatorProviders.includes(p.id), automated: automatedProviders.includes(p.id), available: ['shell', 'custom'].includes(p.id) || (['antigravity', 'hermes'].includes(p.id) ? commandCanStart(p.command) : !!findCommand(p.command)) })));
+        const available = await Promise.all(providers.map(async p => ({ ...p, coordinator: coordinatorProviders.includes(p.id), automated: automatedProviders.includes(p.id), available: ['shell', 'custom'].includes(p.id) || (['antigravity', 'hermes'].includes(p.id) ? await commandCanStartAsync(p.command) : !!findCommand(p.command)) })));
+        return json(res, 200, available);
       }
       if (req.method === 'POST' && pathname === '/api/select-directory') return json(res, 200, await pickDirectory());
       if (req.method === 'POST' && pathname === '/api/projects') {

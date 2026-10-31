@@ -2,7 +2,35 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { Workspace, directory, textField, findCommand, commandCanStart } from '../server/workspace.mjs';
+import { EventEmitter } from 'node:events';
+import { Workspace, directory, textField, findCommand, commandCanStart, commandCanStartAsync } from '../server/workspace.mjs';
+
+test('provider version checks leave the event loop responsive and fail closed', async t => {
+  const temp = fs.mkdtempSync(path.join(process.cwd(), '.local-test-'));
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(temp, 'fixture'), '');
+  const env = { PATH: temp };
+  let probe;
+  const pending = commandCanStartAsync('fixture', env, 'linux', (file, args) => {
+    assert.equal(file, path.join(temp, 'fixture'));
+    assert.deepEqual(args, ['--version']);
+    probe = new EventEmitter();
+    return probe;
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  probe.emit('close', 0, null);
+  assert.equal(await pending, true);
+  assert.equal(await commandCanStartAsync('missing', env, 'linux'), false);
+  assert.equal(await commandCanStartAsync('fixture', env, 'linux', () => { throw new Error('spawn failed'); }), false);
+  let killed = false;
+  assert.equal(await commandCanStartAsync('fixture', env, 'linux', () => Object.assign(new EventEmitter(), { kill() { killed = true; } }), 10), false);
+  assert.equal(killed, true);
+  assert.equal(await commandCanStartAsync('fixture', env, 'linux', () => {
+    const failed = new EventEmitter();
+    queueMicrotask(() => failed.emit('error', new Error('not executable')));
+    return failed;
+  }), false);
+});
 
 test('persists projects and agents, including paths with spaces and accents', t => {
   const temp = fs.mkdtempSync(path.join(process.cwd(), '.local-test-'));
