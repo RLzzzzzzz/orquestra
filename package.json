@@ -1,6 +1,6 @@
 {
   "name": "orquestra",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "engines": {
@@ -19,6 +19,7 @@
     "desktop:installer": "npm run build && npm run desktop:prepare && electron-builder --win nsis --x64",
     "check": "node scripts/check.mjs",
     "check:layout": "node scripts/check-terminal-layout.cjs",
+    "check:opencode-resize": "node scripts/check-opencode-resize.cjs",
     "test": "node scripts/test.mjs all",
     "test:unit": "node scripts/test.mjs unit",
     "test:integration": "node scripts/test.mjs integration",

@@ -15,6 +15,8 @@ async function until(check, label, timeout = 20000) {
 
 async function renderer() {
   const { app, BrowserWindow } = require('electron');
+  const watchdog = setTimeout(() => { console.error('OpenCode QA: tempo total de verificação excedido.'); app.exit(1); }, 90000);
+  watchdog.unref();
   const headless = require('@xterm/headless');
   const directory = process.env.ORQUESTRA_OPENCODE_FIXTURE;
   const artifact = path.join(root, 'coverage', 'opencode-resize');
@@ -88,13 +90,16 @@ async function renderer() {
   assert.ok(new Set(results.map(r => r.cols)).size >= 3, 'O terminal não mudou de largura');
   assert.ok(new Set(results.map(r => r.logoColumn)).size >= 3, 'O logo não acompanhou as larguras da TUI');
   fs.writeFileSync(path.join(artifact, 'result.json'), JSON.stringify(results, null, 2));
-  console.log(JSON.stringify({ passed: true, version: 'installed OpenCode', results, artifact }));
+  console.log(JSON.stringify({ passed: true, backend: process.env.ORQUESTRA_OPENCODE_PACKAGED === '1' ? 'packaged' : 'source', version: 'installed OpenCode', results, artifact }));
   mirror.dispose();
   app.quit();
 }
 
 async function launch() {
-  if (!fs.existsSync(path.join(root, 'dist/index.html'))) throw new Error('Execute npm.cmd run build primeiro.');
+  const packaged = process.argv.includes('--packaged');
+  const backendRoot = packaged ? path.join(root, 'release/win-unpacked/resources/backend') : root;
+  const runtime = packaged ? path.join(backendRoot, 'node.exe') : process.execPath;
+  if (!fs.existsSync(path.join(backendRoot, 'dist/index.html'))) throw new Error(packaged ? 'Gere desktop:pack ou desktop:portable primeiro.' : 'Execute npm.cmd run build primeiro.');
   const directory = fs.mkdtempSync(path.join(root, '.local-opencode-resize-'));
   const projectId = randomUUID(), agentId = randomUUID();
   fs.writeFileSync(path.join(directory, 'workspace.json'), JSON.stringify({ projects: [{ id: projectId, name: 'OpenCode resize regression', cwd: directory }], agents: [{ id: agentId, projectId, provider: 'opencode', command: 'opencode', name: 'OpenCode real', cwd: directory }] }));
@@ -103,10 +108,12 @@ async function launch() {
   const port = probe.address().port;
   await new Promise(resolve => probe.close(resolve));
   const env = { ...process.env, PORT: String(port), ORQUESTRA_DATA_DIR: directory, ORQUESTRA_MEMORY_BIN: path.join(directory, 'memory-not-installed'), XDG_CONFIG_HOME: path.join(directory, 'config'), XDG_DATA_HOME: path.join(directory, 'data'), XDG_STATE_HOME: path.join(directory, 'state'), XDG_CACHE_HOME: path.join(directory, 'cache'), OPENCODE_CONFIG_CONTENT: JSON.stringify({ plugin: [] }) };
+  const pathKey = Object.keys(env).find(key => key.toLowerCase() === 'path') || 'PATH';
+  env[pathKey] = path.dirname(runtime) + path.delimiter + (env[pathKey] || '');
   delete env.ELECTRON_RUN_AS_NODE;
   let server, browser, output = '';
   try {
-    server = fork(path.join(root, 'server/index.mjs'), [], { cwd: root, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
+    server = fork(path.join(backendRoot, 'server/index.mjs'), [], { execPath: runtime, cwd: backendRoot, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
     server.stdout.on('data', data => { output += data; }); server.stderr.on('data', data => { output += data; });
     await until(() => output.includes('Orquestra disponível') || server.exitCode !== null, 'backend iniciar');
     assert.equal(server.exitCode, null, output);
@@ -114,7 +121,7 @@ async function launch() {
     const home = await fetch(url), cookie = home.headers.get('set-cookie').split(';')[0];
     const response = await fetch(`${url}/api/agents/${agentId}/start`, { method: 'POST', headers: { Cookie: cookie, Origin: url } });
     assert.equal(response.status, 200, await response.text());
-    browser = spawn(require('electron'), [__filename, '--opencode-renderer'], { cwd: root, env: { ...env, ORQUESTRA_OPENCODE_FIXTURE: directory, ORQUESTRA_OPENCODE_URL: url }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    browser = spawn(require('electron'), [__filename, '--opencode-renderer'], { cwd: root, env: { ...env, ORQUESTRA_OPENCODE_FIXTURE: directory, ORQUESTRA_OPENCODE_URL: url, ORQUESTRA_OPENCODE_PACKAGED: packaged ? '1' : '0' }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     browser.stdout.pipe(process.stdout); browser.stderr.pipe(process.stderr);
     const code = await new Promise((resolve, reject) => { browser.once('error', reject); browser.once('exit', resolve); });
     assert.equal(code, 0, 'Verificação OpenCode falhou.');
