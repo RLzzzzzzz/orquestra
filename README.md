@@ -335,3 +335,7 @@ Depois de empacotar, `npm.cmd run check:opencode-resize -- --packaged` repete a 
 Estrutura: `src/` contém a interface; `server/`, os terminais, MCP, fila e memória; `scripts/`, preparação e verificações; `tests/`, regressões; `electron/`, o desktop.
 
 Para detalhes técnicos, consulte [contrato de sessões e delegação](docs/core-estabilizacao.md), [CI, worktrees e revisão](docs/ci-worktrees-revisao.md) e [auditoria de memória e delegação](docs/auditoria-estabilizacao-2026-10-30.md). A interface e os fluxos usam [Alethe Agents](https://github.com/Kc1t/alethe-agents) e [Orca](https://github.com/stablyai/orca) como referências de produto, com implementação independente. Dependências e avisos estão em [THIRD_PARTY.md](THIRD_PARTY.md).
+
+
+[![GitHub](https://img.shields.io/badge/GitHub-RLzzzzzzz-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/RLzzzzzzz)
+
